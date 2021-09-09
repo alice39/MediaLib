@@ -411,7 +411,7 @@ static void _png_execute_pixel(struct image_png* image, uint32_t x, uint32_t y,
 
         // probably pixel is in another IDAT chunk
         idat_total_size += idat.size;
-        if (idat_total_size <= pixel_size) {
+        if (idat_total_size <= pixel_index) {
             continue;
         }
 
