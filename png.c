@@ -308,12 +308,12 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
 
     stream.avail_in = chunk->length;
     stream.next_in = chunk->data;
-    stream.avail_out = chunk->length;
-    stream.next_out = idat->pixels = malloc(sizeof(uint8_t) * chunk->length);
+    stream.avail_out = chunk->length + 1024;
+    stream.next_out = idat->pixels = malloc(sizeof(uint8_t) * (chunk->length + 1024));
 
     inflate(&stream, Z_FINISH);
 
-    idat->size = chunk->length - stream.avail_out;
+    idat->size = chunk->length + 1024 - stream.avail_out;
     idat->pixels = realloc(idat->pixels, sizeof(uint8_t) * idat->size);
 
     inflateEnd(&stream);
