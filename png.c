@@ -244,6 +244,11 @@ void image_png_close(struct image_png* image) {
 }
 
 static inline uint32_t convert_int_be(uint32_t value) {
+    if (media_actual_endian() == MEDIA_BIG_ENDIAN) {
+        // no need to shift
+        return value;
+    }
+
     uint8_t* bytes = (uint8_t *) &value;
     return bytes[0] << 24 | bytes[1] << 16 | bytes[2] << 8 | bytes[3];
 }

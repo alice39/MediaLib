@@ -2,7 +2,6 @@
 #include <stdlib.h>
 
 #include "image.h"
-#include "utils.h"
 
 void test_sample() {
     struct image_png* image = image_png_open("sample.png");

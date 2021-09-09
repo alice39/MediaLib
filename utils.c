@@ -1,5 +1,7 @@
 #include "utils.h"
 
+#include <stdio.h>
+
 static uint32_t CRCTable[256];
 static uint8_t crc_table_initialized;
 
@@ -34,4 +36,30 @@ uint32_t media_update_crc32(uint32_t crc, uint8_t* data, uint32_t size) {
     }
 
     return crc;
+}
+
+enum media_endian media_actual_endian() {
+    static enum media_endian endian = 0;
+    static uint8_t initialized = 0;
+
+    if (initialized == 0) {
+        initialized = 1;
+
+        uint32_t val = 0x01020304;
+        switch (*((uint8_t*) &val)) {
+            case 0x01: {
+                endian = MEDIA_BIG_ENDIAN;
+                break;
+            }
+            case 0x04: {
+                endian = MEDIA_LITTLE_ENDIAN;
+                break;
+            }
+            default: {
+                perror("It could not handle endianess");
+            }
+        }
+    }
+
+    return endian;
 }
