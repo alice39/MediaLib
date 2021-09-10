@@ -56,6 +56,9 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
 static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk* chunk);
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
 
+// just if IDAT chunk is not used anymore
+static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat);
+
 typedef void (*_png_pixel_fn)(struct image_png_chunk_IHDR*, void*, struct image_color*);
 
 static void _png_execute_pixel(struct image_png* image, uint32_t x, uint32_t y,
@@ -103,6 +106,7 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     memset(idat.pixels, 0, sizeof(uint8_t) * idat.size);
 
     _png_write_chunk_IDAT(&idat, &image->chunks[1]);
+    _png_free_chunk_IDAT(&idat);
 
     struct image_png_chunk* iend = &image->chunks[2];
     iend->length = 0;
@@ -395,6 +399,10 @@ static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct imag
     chunk->crc = MEDIA_CRC32(crc);
 }
 
+static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat) {
+    free(idat->pixels);
+}
+
 static void _png_execute_pixel(struct image_png* image, uint32_t x, uint32_t y,
                                uint8_t readOnly, _png_pixel_fn action, struct image_color* color) {
     struct image_png_chunk_IHDR ihdr;
@@ -445,6 +453,8 @@ static void _png_execute_pixel(struct image_png* image, uint32_t x, uint32_t y,
         if (readOnly == 0) {
             _png_write_chunk_IDAT(&idat, chunk);
         }
+
+        _png_free_chunk_IDAT(&idat);
 
         break;
     }
