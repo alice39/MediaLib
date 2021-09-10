@@ -69,7 +69,7 @@ static void _png_set_pixel(struct image_png_chunk_IHDR* ihdr, void* pixel, struc
 struct image_png* image_png_create(enum image_color_type type, uint32_t width, uint32_t height) {
     struct image_png* image = malloc(sizeof(struct image_png));
     image->size = 3;
-    image->chunks = malloc(sizeof(struct image_png_chunk) * 3);
+    image->chunks = calloc(3, sizeof(struct image_png_chunk));
 
     struct image_png_chunk_IHDR ihdr;
     ihdr.width = width;
@@ -341,7 +341,12 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
 static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk* chunk) {
     chunk->length = 13;
     strcpy(chunk->type, "IHDR");
-    chunk->data = malloc(sizeof(uint8_t) * 13);
+
+    if (chunk->data == NULL) {
+        chunk->data = malloc(sizeof(uint8_t) * 13);
+    } else {
+        chunk->data = realloc(chunk->data, sizeof(uint8_t) * 13);
+    }
 
     ihdr->width = convert_int_be(ihdr->width);
     ihdr->height = convert_int_be(ihdr->height);
@@ -361,7 +366,10 @@ static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct imag
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk) {
     chunk->length = 0;
     strcpy(chunk->type, "IDAT");
-    chunk->data = malloc(0);
+
+    if (chunk->data == NULL) {
+        chunk->data = malloc(0);
+    }
 
     z_stream stream;
     memset(&stream, 0, sizeof(z_stream));
