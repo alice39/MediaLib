@@ -239,6 +239,10 @@ void image_png_save(struct image_png* image, const char* path) {
 }
 
 void image_png_close(struct image_png* image) {
+    for (uint32_t i = 0; i < image->size; i++) {
+        free(image->chunks[i].data);
+    }
+
     free(image->chunks);
     free(image);
 }
