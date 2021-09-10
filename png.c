@@ -139,9 +139,7 @@ struct image_png* image_png_open(const char* path) {
         if (feof(file)) {
             // Error, IEND wasn't found!
 
-            free(image->chunks);
-            free(image);
-
+            image_png_close(image);
             return NULL;
         }
 
@@ -170,9 +168,7 @@ struct image_png* image_png_open(const char* path) {
     if (_png_read_chunk_IHDR(&image->chunks[0], NULL) != 0) {
         // IHDR is invalid or it's not the first chunk
 
-        free(image->chunks);
-        free(image);
-
+        image_png_close(image);
         image = NULL;
     }
 
