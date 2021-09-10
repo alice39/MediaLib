@@ -301,6 +301,9 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
         return 0;
     }
 
+    idat->size = 0;
+    idat->pixels = malloc(0);
+
     z_stream stream;
     memset(&stream, 0, sizeof(z_stream));
 
@@ -308,12 +311,22 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
 
     stream.avail_in = chunk->length;
     stream.next_in = chunk->data;
-    stream.avail_out = chunk->length + 1024;
-    stream.next_out = idat->pixels = malloc(sizeof(uint8_t) * (chunk->length + 1024));
 
-    inflate(&stream, Z_FINISH);
+    uint32_t times = 1;
+    do {
+        idat->size = 1024 * times;
+        idat->pixels = realloc(idat->pixels, sizeof(uint8_t) * idat->size);
 
-    idat->size = chunk->length + 1024 - stream.avail_out;
+        stream.avail_out = 1024;
+        stream.next_out = idat->pixels + 1024 * (times - 1);
+
+        times++;
+
+        inflate(&stream, Z_NO_FLUSH);
+    } while (stream.avail_out == 0);
+
+    // re-adjust
+    idat->size -= stream.avail_out;
     idat->pixels = realloc(idat->pixels, sizeof(uint8_t) * idat->size);
 
     inflateEnd(&stream);
@@ -342,9 +355,9 @@ static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct imag
 }
 
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk) {
-    chunk->length = idat->size + 1024;
+    chunk->length = 0;
     strcpy(chunk->type, "IDAT");
-    chunk->data = malloc(sizeof(uint8_t) * idat->size);
+    chunk->data = malloc(0);
 
     z_stream stream;
     memset(&stream, 0, sizeof(z_stream));
@@ -354,11 +367,22 @@ static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct imag
 
     stream.avail_in = idat->size;
     stream.next_in = idat->pixels;
-    stream.avail_out = chunk->length;
-    stream.next_out = chunk->data;
 
-    deflate(&stream, Z_FINISH);
+    // fetch until available output size be 0
+    uint16_t times = 1;
+    do {
+        chunk->length = 1024 * times;
+        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
 
+        stream.avail_out = 1024;
+        stream.next_out = chunk->data + 1024 * (times - 1);
+
+        times++;
+
+        deflate(&stream, Z_FINISH);
+    } while (stream.avail_out == 0);
+
+    // re-adjust
     chunk->length -= stream.avail_out;
     chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
 
