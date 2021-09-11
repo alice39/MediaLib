@@ -142,7 +142,8 @@ struct image_png* image_png_open(const char* path) {
             // Error, IEND wasn't found!
 
             image_png_close(image);
-            return NULL;
+            image = NULL;
+            break;
         }
 
         memset(&chunk, 0, sizeof(struct image_png_chunk));
