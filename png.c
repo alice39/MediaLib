@@ -484,8 +484,8 @@ static void _png_save_cache(struct image_png* image) {
                 continue;
             }
 
-            memcpy(idat.pixels + total_copied, cache->idat.pixels, cache->idat.size);
-            total_copied += cache->idat.size;
+            memcpy(idat.pixels, cache->idat.pixels + total_copied, idat.size);
+            total_copied += idat.size;
 
             _png_write_chunk_IDAT(&idat, chunk);
             _png_free_chunk_IDAT(&idat);
