@@ -393,7 +393,7 @@ static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct imag
     stream.next_in = idat->pixels;
 
     // fetch until available output size be 0
-    uint16_t times = 1;
+    uint32_t times = 1;
     do {
         chunk->length = 1024 * times;
         chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
