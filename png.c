@@ -338,7 +338,7 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
 
         times++;
 
-        inflate(&stream, Z_NO_FLUSH);
+        inflate(&stream, Z_FINISH);
     } while (stream.avail_out == 0);
 
     // re-adjust
