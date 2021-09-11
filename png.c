@@ -461,6 +461,10 @@ static void _png_cache(struct image_png* image) {
 }
 
 static void _png_save_cache(struct image_png* image) {
+    if (image->cache == NULL) {
+        return;
+    }
+
     struct image_png_cache* cache = image->cache;
     _png_write_chunk_IHDR(&cache->ihdr, &image->chunks[0]);
 
@@ -494,6 +498,10 @@ static void _png_save_cache(struct image_png* image) {
 }
 
 static void _png_uncache(struct image_png* image) {
+    if (image->cache == NULL) {
+        return;
+    }
+
     _png_free_chunk_IDAT(&image->cache->idat);
     free(image->cache);
     image->cache = NULL;
