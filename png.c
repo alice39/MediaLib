@@ -164,11 +164,14 @@ struct image_png* image_png_open(const char* path) {
         printf("Chunk: %d %s\n", chunk.length, chunk.type);
 
         if (strcmp(chunk.type, "IEND") == 0) {
+            free(chunk.data);
             break;
         }
 
         if (strcmp(chunk.type, "IHDR") == 0) {
             int ihdr_ret = _png_read_chunk_IHDR(&chunk, &image->ihdr);
+            free(chunk.data);
+
             if (chunk.location != 0 || ihdr_ret != 0) {
                 // IHDR is invalid or it's not the first chunk
 
@@ -178,6 +181,8 @@ struct image_png* image_png_open(const char* path) {
             }
         } else if (strcmp(chunk.type, "IDAT") == 0) {
             _png_read_chunk_IDAT(&chunk, &image->idat);
+            free(chunk.data);
+
             if (location == 0) {
                 // IDAT is before than IHDR
 
@@ -228,7 +233,7 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     memcpy(bytes, PNG_FILE_HEADER, sizeof(uint8_t) * 8);
 
     uint32_t chunk_size = 3 + image->unknown_size;
-    struct image_png_chunk* chunks = malloc(sizeof(struct image_png_chunk) * chunk_size);
+    struct image_png_chunk* chunks = malloc(chunk_size * sizeof(struct image_png_chunk));
     memset(chunks, 0, sizeof(struct image_png_chunk) * chunk_size);
 
     _png_write_chunk_IHDR(&image->ihdr, &chunks[0]);
@@ -267,7 +272,11 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
         bytes = realloc(bytes, sizeof(uint8_t) * size);
         memcpy(bytes + size - sizeof(uint32_t), &chunk->crc, sizeof(uint32_t));
         chunk->crc = convert_int_be(chunk->crc);
+
+        free(chunk->data);
     }
+
+    free(chunks);
 
     *pbytes = bytes;
     *psize = size;
@@ -286,6 +295,8 @@ void image_png_save(struct image_png* image, const char* path) {
 
     fwrite(bytes, sizeof(uint8_t), size, file);
     fclose(file);
+
+    free(bytes);
 }
 
 void image_png_close(struct image_png* image) {
