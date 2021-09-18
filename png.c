@@ -59,9 +59,11 @@ static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk*
 // return 0 if success, otherwise another number
 // ihdr can be null, just checking if chunk is an IHDR valid
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr);
+// this is only based in zlib
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat);
 
 static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk* chunk);
+// this is only based in zlib
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
 
 // just if IDAT chunk is not used anymore
@@ -174,8 +176,8 @@ struct image_png* image_png_open(const char* path) {
             int ihdr_ret = _png_read_chunk_IHDR(&chunk, &image->ihdr);
             free(chunk.data);
 
-            if (chunk.location != 0 || ihdr_ret != 0) {
-                // IHDR is invalid or it's not the first chunk
+            if (chunk.location != 0 || ihdr_ret != 0 || image->ihdr.compression != 0) {
+                // IHDR is invalid, it's not the first chunk or compression is not zlib
 
                 image_png_close(image);
                 image = NULL;
