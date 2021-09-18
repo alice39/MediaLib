@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 static const char PNG_FILE_HEADER[9] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00};
 static const uint8_t PNG_BITS_TYPE[7][17] = {
@@ -37,15 +38,22 @@ struct image_png_chunk_IHDR {
     uint8_t interlace;
 };
 
+enum image_png_idat_type {
+    PNG_IDAT_SCANLINES,
+    PNG_IDAT_PIXELS
+};
+
 struct image_png_chunk_IDAT {
+    enum image_png_idat_type type;
     uint32_t size;
-    uint8_t* pixels;
+    uint8_t* data;
 
     uint32_t location;
 };
 
 struct image_png {
     struct image_png_chunk_IHDR ihdr;
+    // IDAT needs to be in PIXELS instead of SCANLINES
     struct image_png_chunk_IDAT idat;
 
     uint32_t unknown_size;
@@ -59,12 +67,16 @@ static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk*
 // return 0 if success, otherwise another number
 // ihdr can be null, just checking if chunk is an IHDR valid
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr);
-// this is only based in zlib
+// this is only based in zlib and it'll write in IDAT chunk as SCANLINES
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat);
 
 static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk* chunk);
-// this is only based in zlib
+// this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
+
+static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
+                                    struct image_png_chunk_IDAT* idat,
+                                    enum image_png_idat_type type);
 
 // just if IDAT chunk is not used anymore
 static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat);
@@ -106,10 +118,11 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     ihdr->interlace = 0;
 
     struct image_png_chunk_IDAT* idat = &image->idat;
+    idat->type = PNG_IDAT_PIXELS;
     uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth] / 8;
-    idat->size = (width * height) * pixel_size + height;
-    idat->pixels = malloc(sizeof(uint8_t) * idat->size);
-    memset(idat->pixels, 0, sizeof(uint8_t) * idat->size);
+    idat->size = width * height * pixel_size;
+    idat->data = malloc(sizeof(uint8_t) * idat->size);
+    memset(idat->data, 0, sizeof(uint8_t) * idat->size);
     idat->location = 1;
 
     image->unknown_size = 0;
@@ -135,7 +148,7 @@ struct image_png* image_png_open(const char* path) {
     }
 
     struct image_png* image = malloc(sizeof(struct image_png));
-    image->idat.pixels = NULL;
+    image->idat.data = NULL;
     image->unknown_size = 0;
     image->unknown_chunks = NULL;
 
@@ -184,15 +197,15 @@ struct image_png* image_png_open(const char* path) {
                 break;
             }
         } else if (strcmp(chunk.type, "IDAT") == 0) {
-            if (image->idat.pixels != NULL) {
+            if (image->idat.data != NULL) {
                 struct image_png_chunk_IDAT idat;
                 _png_read_chunk_IDAT(&chunk, &idat);
 
                 uint32_t old_size = image->idat.size;
 
                 image->idat.size += idat.size;
-                image->idat.pixels = realloc(image->idat.pixels, sizeof(uint8_t) * image->idat.size);
-                memcpy(image->idat.pixels + old_size, idat.pixels, idat.size);
+                image->idat.data = realloc(image->idat.data, sizeof(uint8_t) * image->idat.size);
+                memcpy(image->idat.data + old_size, idat.data, idat.size);
 
                 _png_free_chunk_IDAT(&idat);
             } else {
@@ -215,6 +228,10 @@ struct image_png* image_png_open(const char* path) {
         }
     } while (1);
 
+    if (image != NULL) {
+        _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_PIXELS);
+    }
+
     fclose(file);
 
     return image;
@@ -230,16 +247,16 @@ int image_png_set_dimension(struct image_png* image, struct image_dimension dime
     image->ihdr.height = dimension.height;
 
     uint32_t old_size = image->idat.size;
-    uint8_t* old_pixels = image->idat.pixels;
+    uint8_t* old_pixels = image->idat.data;
 
     uint32_t pixel_size = PNG_BITS_TYPE[image->ihdr.color][image->ihdr.depth] / 8;
-    image->idat.size = dimension.width * dimension.height * pixel_size + dimension.height;
-    image->idat.pixels = realloc(image->idat.pixels, sizeof(uint8_t) * image->idat.size);
+    image->idat.size = dimension.width * dimension.height * pixel_size;
+    image->idat.data = realloc(image->idat.data, sizeof(uint8_t) * image->idat.size);
 
     // if realloc fails
-    if (image->idat.pixels == NULL) {
+    if (image->idat.data == NULL) {
         image->idat.size = old_size;
-        image->idat.pixels = old_pixels;
+        image->idat.data = old_pixels;
         return 1;
     }
 
@@ -273,7 +290,10 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     memset(chunks, 0, sizeof(struct image_png_chunk) * chunk_size);
 
     _png_write_chunk_IHDR(&image->ihdr, &chunks[0]);
+
+    _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_SCANLINES);
     _png_write_chunk_IDAT(&image->idat, &chunks[image->idat.location]);
+    _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_PIXELS);
 
     struct image_png_chunk* iend = &chunks[2 + image->unknown_size];
     iend->length = 0;
@@ -336,7 +356,7 @@ void image_png_save(struct image_png* image, const char* path) {
 }
 
 void image_png_close(struct image_png* image) {
-    free(image->idat.pixels);
+    free(image->idat.data);
 
     for (uint32_t i = 0; i < image->unknown_size; i++) {
         free(image->unknown_chunks[i].data);
@@ -392,8 +412,9 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
         return 0;
     }
 
+    idat->type = PNG_IDAT_SCANLINES;
     idat->size = 0;
-    idat->pixels = malloc(0);
+    idat->data = malloc(0);
     idat->location = chunk->location;
 
     z_stream stream;
@@ -407,10 +428,10 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
     uint32_t times = 1;
     do {
         idat->size = 1024 * times;
-        idat->pixels = realloc(idat->pixels, sizeof(uint8_t) * idat->size);
+        idat->data = realloc(idat->data, sizeof(uint8_t) * idat->size);
 
         stream.avail_out = 1024;
-        stream.next_out = idat->pixels + 1024 * (times - 1);
+        stream.next_out = idat->data + 1024 * (times - 1);
 
         times++;
 
@@ -419,7 +440,7 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
 
     // re-adjust
     idat->size -= stream.avail_out;
-    idat->pixels = realloc(idat->pixels, sizeof(uint8_t) * idat->size);
+    idat->data = realloc(idat->data, sizeof(uint8_t) * idat->size);
 
     inflateEnd(&stream);
 
@@ -462,11 +483,10 @@ static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct imag
     z_stream stream;
     memset(&stream, 0, sizeof(z_stream));
 
-    // deflateInit(&stream, Z_DEFAULT_COMPRESSION);
     deflateInit(&stream, 9);
 
     stream.avail_in = idat->size;
-    stream.next_in = idat->pixels;
+    stream.next_in = idat->data;
 
     // fetch until available output size be 0
     uint32_t times = 1;
@@ -495,8 +515,92 @@ static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct imag
     chunk->crc = MEDIA_CRC32(crc);
 }
 
+static void _png_IDAT_to_scanlines(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk_IDAT* idat) {
+    idat->type = PNG_IDAT_SCANLINES;
+
+    uint32_t size = idat->size;
+    uint8_t* pixels = idat->data;
+
+    uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth] / 8;
+
+    idat->size = ihdr->width * ihdr->height * pixel_size + ihdr->height;
+    idat->data = malloc(sizeof(uint8_t) * idat->size);
+
+    // for now, all scanlines are filtered to 0
+
+    uint64_t index = 0;
+
+    for (uint32_t y = 0; y < ihdr->height; y++) {
+        // set filter to scanline
+        idat->data[index++] = 0;
+
+        for (uint32_t x = 0; x < ihdr->width; x++) {
+            for (uint8_t j = 0; j < pixel_size; j++) {
+                idat->data[index++] = pixels[(x + y * ihdr->width) * pixel_size + j];
+            }
+        }
+    }
+
+    free(pixels);
+}
+
+static void _png_IDAT_to_pixels(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk_IDAT* idat) {
+    idat->type = PNG_IDAT_PIXELS;
+
+    uint32_t size = idat->size;
+    uint8_t* scanlines = idat->data;
+
+    uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth] / 8;
+
+    idat->size = ihdr->width * ihdr->height * pixel_size;
+    idat->data = malloc(sizeof(uint8_t) * idat->size);
+
+    uint64_t index = 0;
+
+    for (uint32_t y = 0; y < ihdr->height; y++) {
+        uint8_t filter = scanlines[index++];
+
+        for (uint32_t x = 0; x < ihdr->width; x++) {
+            for (uint8_t j = 0; j < pixel_size; j++) {
+                uint32_t a = x > 0 ? scanlines[index - pixel_size] : 0;
+                uint32_t b = y > 0 ? scanlines[index - y * (ihdr->width + 1)] : 0;
+                uint32_t byte = scanlines[index];
+
+                switch (filter) {
+                    case 0: break;
+                    case 1: byte = (byte + a); break;
+                    case 2: byte = (byte + b); break;
+                    case 3: byte = (byte + floor(a / 2.0 + b / 2.0)); break;
+                }
+
+                byte %= 256;
+
+                // presave byte in scanline for future usage
+                scanlines[index++] = byte;
+                idat->data[(x + y * ihdr->width) * pixel_size + j] = byte;
+            }
+        }
+    }
+
+    free(scanlines);
+}
+
+static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
+                                    struct image_png_chunk_IDAT* idat,
+                                    enum image_png_idat_type type) {
+    // nothing to do
+    if (idat->type == type) {
+        return;
+    }
+
+    switch (type) {
+        case PNG_IDAT_SCANLINES: _png_IDAT_to_scanlines(ihdr, idat); break;
+        case PNG_IDAT_PIXELS: _png_IDAT_to_pixels(ihdr, idat); break;
+    }
+}
+
 static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat) {
-    free(idat->pixels);
+    free(idat->data);
 }
 
 static void _png_execute_pixel(struct image_png* image, uint32_t x, uint32_t y,
@@ -508,14 +612,14 @@ static void _png_execute_pixel(struct image_png* image, uint32_t x, uint32_t y,
     uint8_t depth = ihdr->depth;
 
     uint32_t pixel_size = PNG_BITS_TYPE[type][depth] / 8;
-    uint64_t pixel_index = (x + y * ihdr->width) * pixel_size + y + 1;
+    uint64_t pixel_index = (x + y * ihdr->width) * pixel_size;
 
     // out of bounds
     if (idat->size <= pixel_index) {
         return;
     }
 
-    action(ihdr, &idat->pixels[pixel_index], color);
+    action(ihdr, &idat->data[pixel_index], color);
 }
 
 static void _png_get_pixel(struct image_png_chunk_IHDR* ihdr, void* pixel, struct image_color* color) {
