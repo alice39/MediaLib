@@ -180,7 +180,21 @@ struct image_png* image_png_open(const char* path) {
                 break;
             }
         } else if (strcmp(chunk.type, "IDAT") == 0) {
-            _png_read_chunk_IDAT(&chunk, &image->idat);
+            if (image->idat.pixels != NULL) {
+                struct image_png_chunk_IDAT idat;
+                _png_read_chunk_IDAT(&chunk, &idat);
+
+                uint32_t old_size = image->idat.size;
+
+                image->idat.size += idat.size;
+                image->idat.pixels = realloc(image->idat.pixels, sizeof(uint8_t) * image->idat.size);
+                memcpy(image->idat.pixels + old_size, idat.pixels, idat.size);
+
+                _png_free_chunk_IDAT(&idat);
+            } else {
+                _png_read_chunk_IDAT(&chunk, &image->idat);
+            }
+
             free(chunk.data);
 
             if (location == 0) {
