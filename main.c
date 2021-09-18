@@ -10,15 +10,16 @@ void test_sample() {
         return;
     }
 
-    uint32_t width = image_png_get_width(image);
-    uint32_t height = image_png_get_height(image);
+    struct image_dimension dimension;
+    image_png_get_dimension(image, &dimension);
+
     uint8_t color_type = image_png_get_color(image);
     uint8_t depth = image_png_get_depth(image);
 
-    printf("sample.png:\n width: %d\n height: %d\n color: %d\n depth: %d\n", width, height, color_type, depth);
+    printf("sample.png:\n width: %d\n height: %d\n color: %d\n depth: %d\n", dimension.width, dimension.height, color_type, depth);
 
-    for (uint32_t y = 0; y < height; y++) {
-        for (uint32_t x = 0; x < width; x++) {
+    for (uint32_t y = 0; y < dimension.height; y++) {
+        for (uint32_t x = 0; x < dimension.width; x++) {
             struct image_color color;
             image_png_get_pixel(image, x, y, &color);
             if (color.type == IMAGE_RGBA16_COLOR) {

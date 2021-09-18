@@ -202,12 +202,30 @@ struct image_png* image_png_open(const char* path) {
     return image;
 }
 
-uint32_t image_png_get_width(struct image_png* image) {
-    return image->ihdr.width;
+void image_png_get_dimension(struct image_png* image, struct image_dimension* dimension) {
+    dimension->width = image->ihdr.width;
+    dimension->height = image->ihdr.height;
 }
 
-uint32_t image_png_get_height(struct image_png* image) {
-    return image->ihdr.height;
+int image_png_set_dimension(struct image_png* image, struct image_dimension dimension) {
+    image->ihdr.width = dimension.width;
+    image->ihdr.height = dimension.height;
+
+    uint32_t old_size = image->idat.size;
+    uint8_t* old_pixels = image->idat.pixels;
+
+    uint32_t pixel_size = PNG_BITS_TYPE[image->ihdr.color][image->ihdr.depth] / 8;
+    image->idat.size = dimension.width * dimension.height * pixel_size + dimension.height;
+    image->idat.pixels = realloc(image->idat.pixels, sizeof(uint8_t) * image->idat.size);
+
+    // if realloc fails
+    if (image->idat.pixels == NULL) {
+        image->idat.size = old_size;
+        image->idat.pixels = old_pixels;
+        return 1;
+    }
+
+    return 0;
 }
 
 uint8_t image_png_get_color(struct image_png* image) {

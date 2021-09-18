@@ -56,10 +56,16 @@ struct image_color {
     };
 };
 
+struct image_dimension {
+    uint32_t width;
+    uint32_t height;
+};
+
 struct image_png* image_png_create(enum image_color_type type, uint32_t width, uint32_t height);
 struct image_png* image_png_open(const char* path);
-uint32_t image_png_get_width(struct image_png* image);
-uint32_t image_png_get_height(struct image_png* image);
+void image_png_get_dimension(struct image_png* image, struct image_dimension* dimension);
+// 0 if sucess otherise another number
+int image_png_set_dimension(struct image_png* image, struct image_dimension dimension);
 uint8_t image_png_get_color(struct image_png* image);
 uint8_t image_png_get_depth(struct image_png* image);
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color);
