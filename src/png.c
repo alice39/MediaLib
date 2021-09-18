@@ -1,5 +1,5 @@
 #include "image.h"
-#include "zlib/zlib.h"
+#include "../zlib/zlib.h"
 #include "utils.h"
 
 #include <stdint.h>
