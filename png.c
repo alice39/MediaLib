@@ -54,6 +54,8 @@ struct image_png {
 
 static inline uint32_t convert_int_be(uint32_t value);
 
+static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk* dest);
+
 // return 0 if success, otherwise another number
 // ihdr can be null, just checking if chunk is an IHDR valid
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr);
@@ -279,7 +281,7 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
 
     for (uint32_t i = 0; i < image->unknown_size; i++) {
         struct image_png_chunk* chunk = &image->unknown_chunks[i];
-        memcpy(&chunks[chunk->location], chunk, sizeof(struct image_png_chunk));
+        _png_copy_chunk(chunk, &chunks[chunk->location]);
     }
 
     for (uint32_t i = 0; i < chunk_size; i++) {
@@ -351,6 +353,15 @@ static inline uint32_t convert_int_be(uint32_t value) {
 
     uint8_t* bytes = (uint8_t *) &value;
     return bytes[0] << 24 | bytes[1] << 16 | bytes[2] << 8 | bytes[3];
+}
+
+static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk* dest) {
+    dest->length = src->length;
+    strcpy(dest->type, src->type);
+    dest->data = malloc(sizeof(uint8_t) * src->length);
+    memcpy(dest->data, src->data, sizeof(uint8_t) * src->length);
+    dest->crc = src->crc;
+    dest->location = src->location;
 }
 
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr) {
