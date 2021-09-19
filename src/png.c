@@ -152,6 +152,9 @@ struct image_png* image_png_open(const char* path) {
     image->unknown_size = 0;
     image->unknown_chunks = NULL;
 
+    struct image_png_chunk idat_chunk;
+    memset(&idat_chunk, 0, sizeof(struct image_png_chunk));
+
     uint32_t location = 0;
     struct image_png_chunk chunk;
     do {
@@ -197,19 +200,16 @@ struct image_png* image_png_open(const char* path) {
                 break;
             }
         } else if (strcmp(chunk.type, "IDAT") == 0) {
-            if (image->idat.data != NULL) {
-                struct image_png_chunk_IDAT idat;
-                _png_read_chunk_IDAT(&chunk, &idat);
+            if (idat_chunk.length > 0) {
 
-                uint32_t old_size = image->idat.size;
+                uint32_t old_size = idat_chunk.length;
 
-                image->idat.size += idat.size;
-                image->idat.data = realloc(image->idat.data, sizeof(uint8_t) * image->idat.size);
-                memcpy(image->idat.data + old_size, idat.data, idat.size);
+                idat_chunk.length += chunk.length;
+                idat_chunk.data = realloc(idat_chunk.data, sizeof(uint8_t) * idat_chunk.length);
 
-                _png_free_chunk_IDAT(&idat);
+                memcpy(idat_chunk.data + old_size, chunk.data, chunk.length);
             } else {
-                _png_read_chunk_IDAT(&chunk, &image->idat);
+                _png_copy_chunk(&chunk, &idat_chunk);
             }
 
             free(chunk.data);
@@ -229,6 +229,7 @@ struct image_png* image_png_open(const char* path) {
     } while (1);
 
     if (image != NULL) {
+        _png_read_chunk_IDAT(&idat_chunk, &image->idat);
         _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_PIXELS);
     }
 
