@@ -5,6 +5,8 @@
 
 #define IMAGE_ALPHA_BIT 0x80
 
+#define image_get_depth(type) ((type & 0x40) != 0 ? 16 : 8)
+
 struct image_png;
 struct image_jpeg;
 
@@ -66,8 +68,8 @@ struct image_png* image_png_open(const char* path);
 void image_png_get_dimension(struct image_png* image, struct image_dimension* dimension);
 // 0 if sucess otherise another number
 int image_png_set_dimension(struct image_png* image, struct image_dimension dimension);
-uint8_t image_png_get_color(struct image_png* image);
-uint8_t image_png_get_depth(struct image_png* image);
+void image_png_get_color(struct image_png* image, enum image_color_type* type);
+void image_png_set_color(struct image_png* image, enum image_color_type type);
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color);
 void image_png_set_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color color);
 void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psize);

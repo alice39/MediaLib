@@ -13,8 +13,9 @@ void test_sample() {
     struct image_dimension dimension;
     image_png_get_dimension(image, &dimension);
 
-    uint8_t color_type = image_png_get_color(image);
-    uint8_t depth = image_png_get_depth(image);
+    enum image_color_type color_type;
+    image_png_get_color(image, &color_type);
+    uint8_t depth = image_get_depth(color_type);
 
     printf("sample.png:\n width: %d\n height: %d\n color: %d\n depth: %d\n", dimension.width, dimension.height, color_type, depth);
 

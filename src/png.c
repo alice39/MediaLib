@@ -265,12 +265,102 @@ int image_png_set_dimension(struct image_png* image, struct image_dimension dime
     return 0;
 }
 
-uint8_t image_png_get_color(struct image_png* image) {
-    return image->ihdr.color;
+void image_png_get_color(struct image_png* image, enum image_color_type* type) {
+    uint8_t color = image->ihdr.color;
+    uint8_t depth = image->ihdr.depth;
+
+    switch (color) {
+        case 0:
+        case 4: {
+            if (depth <= 8) {
+                *type = IMAGE_GRAY8_COLOR;
+            } else if (depth == 16) {
+                *type = IMAGE_GRAY16_COLOR;
+            }
+
+            if (color == 4) {
+                *type |= IMAGE_ALPHA_BIT;
+            }
+
+            break;
+        }
+        case 2:
+        case 6: {
+            if (depth == 8) {
+                *type = IMAGE_RGBA8_COLOR;
+            } else if (depth == 16) {
+                *type = IMAGE_RGBA16_COLOR;
+            }
+
+            if (color == 6) {
+                *type |= IMAGE_ALPHA_BIT;
+            }
+
+            break;
+        }
+        case 3: {
+            *type = IMAGE_INDEXED_COLOR;
+
+            break;
+        }
+    }
 }
 
-uint8_t image_png_get_depth(struct image_png* image) {
-    return image->ihdr.depth;
+void image_png_set_color(struct image_png* image, enum image_color_type type) {
+    struct image_png_chunk_IHDR* ihdr = &image->ihdr;
+    struct image_png_chunk_IDAT* idat = &image->idat;
+
+    uint8_t color = 0;
+    uint8_t depth = image_get_depth(type);
+
+    switch (type & 0x7F) {
+        case IMAGE_RGBA8_COLOR:
+        case IMAGE_RGBA16_COLOR: {
+            color = (type & IMAGE_ALPHA_BIT) != 0 ? 6 : 2;
+            break;
+        }
+        case IMAGE_GRAY8_COLOR:
+        case IMAGE_GRAY16_COLOR: {
+            color = (type & IMAGE_ALPHA_BIT) != 0 ? 4 : 0;
+            break;
+        }
+        case IMAGE_INDEXED_COLOR: {
+            color = 3;
+            break;
+        }
+    }
+
+    // it didn't change anything
+    if (color == ihdr->color && depth == ihdr->depth) {
+        return;
+    }
+
+    // now do a copy of actual pixel colors to convert them
+    // to the new type
+
+    struct image_color* color_pixels = malloc(sizeof(struct image_color) * ihdr->width * ihdr->height);
+    for (uint32_t y = 0; y < ihdr->height; y++) {
+        for (uint32_t x = 0; x < ihdr->width; x++) {
+            image_png_get_pixel(image, x, y, &color_pixels[x + y * ihdr->width]);
+        }
+    }
+
+    ihdr->color = color;
+    ihdr->depth = depth;
+
+    uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth];
+    idat->size = ihdr->width * ihdr->height * pixel_size;
+    idat->data = realloc(idat->data, sizeof(uint8_t) * idat->size);
+
+    for (uint32_t y = 0; y < ihdr->height; y++) {
+        for (uint32_t x = 0; x < ihdr->width; x++) {
+            struct image_color color_pixel = color_pixels[x + y * ihdr->width];
+            _png_convert_color(&color_pixel, type);
+            image_png_set_pixel(image, x, y, color_pixel);
+        }
+    }
+
+    free(color_pixels);
 }
 
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color) {
