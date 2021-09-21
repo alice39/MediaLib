@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define IMAGE_ALPHA_BIT 0x80
+#define IMAGE_IGNORE_ALPHA(type) (type & 0x7F)
 
 #define image_get_depth(type) ((type & 0x40) != 0 ? 16 : 8)
 

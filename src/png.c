@@ -97,7 +97,7 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     ihdr->height = height;
     ihdr->depth = (type & 0x40) != 0 ? 16 : 8;
 
-    switch (type & 0x7F) {
+    switch (IMAGE_IGNORE_ALPHA(type)) {
         case IMAGE_RGBA8_COLOR:
         case IMAGE_RGBA16_COLOR: {
             ihdr->color = (type & IMAGE_ALPHA_BIT) != 0 ? 6 : 2;
@@ -313,7 +313,7 @@ void image_png_set_color(struct image_png* image, enum image_color_type type) {
     uint8_t color = 0;
     uint8_t depth = image_get_depth(type);
 
-    switch (type & 0x7F) {
+    switch (IMAGE_IGNORE_ALPHA(type)) {
         case IMAGE_RGBA8_COLOR:
         case IMAGE_RGBA16_COLOR: {
             color = (type & IMAGE_ALPHA_BIT) != 0 ? 6 : 2;
@@ -481,12 +481,12 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
     struct image_color new_color;
     new_color.type = type;
 
-    switch (color->type & 0x7F) {
+    switch (IMAGE_IGNORE_ALPHA(color->type)) {
         case IMAGE_RGBA8_COLOR:
         case IMAGE_RGBA16_COLOR: {
-            switch (type & 0x7F) {
+            switch (IMAGE_IGNORE_ALPHA(type)) {
                 case IMAGE_RGBA8_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_RGBA16_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_RGBA16_COLOR) {
                         new_color.rgba8.red = color->rgba16.red & 0xFF;
                         new_color.rgba8.green = color->rgba16.green & 0xFF;
                         new_color.rgba8.blue = color->rgba16.blue & 0xFF;
@@ -496,7 +496,7 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
                     break;
                 }
                 case IMAGE_RGBA16_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_RGBA8_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_RGBA8_COLOR) {
                         new_color.rgba16.red = twice16(color->rgba8.red);
                         new_color.rgba16.green = twice16(color->rgba8.green);
                         new_color.rgba16.blue = twice16(color->rgba8.blue);
@@ -506,10 +506,10 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
                     break;
                 }
                 case IMAGE_GRAY8_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_RGBA8_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_RGBA8_COLOR) {
                         new_color.ga8.gray = (color->rgba8.red + color->rgba8.green + color->rgba8.blue) / 3;
                         new_color.ga8.alpha = color->rgba8.alpha;
-                    } else if (color->type == IMAGE_RGBA16_COLOR) {
+                    } else if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_RGBA16_COLOR) {
                         new_color.ga8.gray = (color->rgba16.red & 0xFF + color->rgba16.green & 0xFF + color->rgba16.blue & 0xFF) / 3;
                         new_color.ga8.alpha = color->rgba16.alpha & 0xFF;
                     }
@@ -517,10 +517,10 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
                     break;
                 }
                 case IMAGE_GRAY16_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_RGBA8_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_RGBA8_COLOR) {
                         new_color.ga16.gray = twice16((color->rgba8.red + color->rgba8.green + color->rgba8.blue) / 3);
                         new_color.ga16.alpha = twice16(color->rgba8.alpha);
-                    } else if (color->type == IMAGE_RGBA16_COLOR) {
+                    } else if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_RGBA16_COLOR) {
                         new_color.ga16.gray = twice16((color->rgba16.red & 0xFF + color->rgba16.green & 0xFF + color->rgba16.blue & 0xFF) / 3);
                         new_color.ga16.alpha = color->rgba16.alpha;
                     }
@@ -533,14 +533,14 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
         }
         case IMAGE_GRAY8_COLOR:
         case IMAGE_GRAY16_COLOR: {
-            switch (type & 0x7F) {
+            switch (IMAGE_IGNORE_ALPHA(type)) {
                 case IMAGE_RGBA8_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_GRAY8_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_GRAY8_COLOR) {
                         new_color.rgba8.red = color->ga8.gray;
                         new_color.rgba8.green = color->ga8.gray;
                         new_color.rgba8.blue = color->ga8.gray;
                         new_color.rgba8.alpha = color->ga8.alpha;
-                    } else if ((color->type & 0x7F) == IMAGE_GRAY16_COLOR) {
+                    } else if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_GRAY16_COLOR) {
                         new_color.rgba8.red = color->ga16.gray & 0xFF;
                         new_color.rgba8.green = color->ga16.gray & 0xFF;
                         new_color.rgba8.blue = color->ga16.gray & 0xFF;
@@ -550,12 +550,12 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
                     break;
                 }
                 case IMAGE_RGBA16_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_GRAY8_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_GRAY8_COLOR) {
                         new_color.rgba16.red = twice16(color->ga8.gray);
                         new_color.rgba16.green = twice16(color->ga8.gray);
                         new_color.rgba16.blue = twice16(color->ga8.gray);
                         new_color.rgba16.alpha = twice16(color->ga8.alpha);
-                    } else if ((color->type & 0x7F) == IMAGE_GRAY16_COLOR) {
+                    } else if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_GRAY16_COLOR) {
                         new_color.rgba16.red = twice16(color->ga16.gray);
                         new_color.rgba16.green = twice16(color->ga16.gray);
                         new_color.rgba16.blue = twice16(color->ga16.gray);
@@ -565,7 +565,7 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
                     break;
                 }
                 case IMAGE_GRAY8_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_GRAY16_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_GRAY16_COLOR) {
                         new_color.ga8.gray = color->ga16.gray & 0xFF;
                         new_color.ga8.alpha = color->ga16.alpha & 0xFF;
                     }
@@ -573,7 +573,7 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
                     break;
                 }
                 case IMAGE_GRAY16_COLOR: {
-                    if ((color->type & 0x7F) == IMAGE_GRAY8_COLOR) {
+                    if (IMAGE_IGNORE_ALPHA(color->type) == IMAGE_GRAY8_COLOR) {
                         new_color.ga16.gray = twice16(color->ga8.gray);
                         new_color.ga16.alpha = twice16(color->ga8.alpha);
                     }
