@@ -849,6 +849,7 @@ static void _png_get_pixel(struct image_png_chunk_IHDR* ihdr, void* pixel, struc
 
                 // if alpha is present
                 if (ihdr->color == 4) {
+                    color->type |= IMAGE_ALPHA_BIT;
                     color->ga8.alpha = pixel_8bits[1];
                 }
             } else if (depth == 16) {
@@ -857,6 +858,7 @@ static void _png_get_pixel(struct image_png_chunk_IHDR* ihdr, void* pixel, struc
 
                 // if alpha is present
                 if (ihdr->color == 4) {
+                    color->type |= IMAGE_ALPHA_BIT;
                     color->ga16.alpha = pixel_16bits[1];
                 }
             }
@@ -873,6 +875,7 @@ static void _png_get_pixel(struct image_png_chunk_IHDR* ihdr, void* pixel, struc
 
                 // if alpha is present
                 if (ihdr->color == 6) {
+                    color->type |= IMAGE_ALPHA_BIT;
                     color->rgba8.alpha = pixel_8bits[3];
                 }
             } else if (depth == 16) {
@@ -883,6 +886,7 @@ static void _png_get_pixel(struct image_png_chunk_IHDR* ihdr, void* pixel, struc
 
                 // if alpha is present
                 if (ihdr->color == 6) {
+                    color->type |= IMAGE_ALPHA_BIT;
                     color->rgba16.alpha = pixel_16bits[3];
                 }
             }

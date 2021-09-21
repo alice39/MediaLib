@@ -23,9 +23,9 @@ void test_sample() {
         for (uint32_t x = 0; x < dimension.width; x++) {
             struct image_color color;
             image_png_get_pixel(image, x, y, &color);
-            if (color.type == IMAGE_RGBA16_COLOR) {
+            if (IMAGE_IGNORE_ALPHA(color.type) == IMAGE_RGBA16_COLOR) {
                 printf("Pixel at %d,%d: T: %d RGBA: %02X%02X%02X%02X\n", x, y, (uint8_t) color.type, (uint8_t) color.rgba16.red, (uint8_t) color.rgba16.green, (uint8_t) color.rgba16.blue, (uint8_t) color.rgba16.alpha);
-            } else if (color.type == IMAGE_RGBA8_COLOR) {
+            } else if (IMAGE_IGNORE_ALPHA(color.type) == IMAGE_RGBA8_COLOR) {
                 printf("Pixel at %d,%d: T: %d RGBA: %02X%02X%02X%02X\n", x, y, color.type, color.rgba8.red, color.rgba8.green, color.rgba8.blue, color.rgba8.alpha);
             } else {
                 printf("Error, no handling color type: %d\n", color.type);
