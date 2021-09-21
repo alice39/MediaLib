@@ -371,6 +371,28 @@ void image_png_set_pixel(struct image_png* image, uint32_t x, uint32_t y, struct
     _png_execute_pixel(image, x, y, _png_set_pixel, &color);
 }
 
+struct image_png* image_png_copy(struct image_png* image) {
+    struct image_png* copy_image = malloc(sizeof(struct image_png));
+
+    if (copy_image != NULL) {
+        memcpy(&copy_image->ihdr, &image->ihdr, sizeof(struct image_png_chunk_IHDR));
+
+        copy_image->idat.type = image->idat.type;
+        copy_image->idat.size = image->idat.size;
+        copy_image->idat.data = malloc(sizeof(uint8_t) * copy_image->idat.size);
+        memcpy(copy_image->idat.data, image->idat.data, sizeof(uint8_t) * copy_image->idat.size);
+        copy_image->idat.location = image->idat.location;
+
+        copy_image->unknown_size = image->unknown_size;
+        copy_image->unknown_chunks = malloc(sizeof(struct image_png_chunk) * copy_image->unknown_size);
+        for (uint32_t i = 0; i < copy_image->unknown_size; i++) {
+            _png_copy_chunk(&image->unknown_chunks[i], &copy_image->unknown_chunks[i]);
+        }
+    }
+
+    return copy_image;
+}
+
 void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psize) {
     uint32_t size = 8;
     uint8_t* bytes = malloc(sizeof(uint8_t) * 8);
