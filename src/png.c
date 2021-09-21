@@ -61,6 +61,7 @@ struct image_png {
 };
 
 static inline uint32_t convert_int_be(uint32_t value);
+static void _png_convert_color(struct image_color* color, enum image_color_type type);
 
 static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk* dest);
 
@@ -376,6 +377,126 @@ static inline uint32_t convert_int_be(uint32_t value) {
 
     uint8_t* bytes = (uint8_t *) &value;
     return bytes[0] << 24 | bytes[1] << 16 | bytes[2] << 8 | bytes[3];
+}
+
+inline static uint16_t twice16(uint8_t value) {
+    return (value << 8) | value;
+}
+
+static void _png_convert_color(struct image_color* color, enum image_color_type type) {
+    if (color->type == type) {
+        return;
+    }
+
+    struct image_color new_color;
+    new_color.type = type;
+
+    switch (color->type & 0x7F) {
+        case IMAGE_RGBA8_COLOR:
+        case IMAGE_RGBA16_COLOR: {
+            switch (type & 0x7F) {
+                case IMAGE_RGBA8_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_RGBA16_COLOR) {
+                        new_color.rgba8.red = color->rgba16.red & 0xFF;
+                        new_color.rgba8.green = color->rgba16.green & 0xFF;
+                        new_color.rgba8.blue = color->rgba16.blue & 0xFF;
+                        new_color.rgba8.alpha = color->rgba16.alpha & 0xFF;
+                    }
+
+                    break;
+                }
+                case IMAGE_RGBA16_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_RGBA8_COLOR) {
+                        new_color.rgba16.red = twice16(color->rgba8.red);
+                        new_color.rgba16.green = twice16(color->rgba8.green);
+                        new_color.rgba16.blue = twice16(color->rgba8.blue);
+                        new_color.rgba16.alpha = twice16(color->rgba8.alpha);
+                    }
+
+                    break;
+                }
+                case IMAGE_GRAY8_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_RGBA8_COLOR) {
+                        new_color.ga8.gray = (color->rgba8.red + color->rgba8.green + color->rgba8.blue) / 3;
+                        new_color.ga8.alpha = color->rgba8.alpha;
+                    } else if (color->type == IMAGE_RGBA16_COLOR) {
+                        new_color.ga8.gray = (color->rgba16.red & 0xFF + color->rgba16.green & 0xFF + color->rgba16.blue & 0xFF) / 3;
+                        new_color.ga8.alpha = color->rgba16.alpha & 0xFF;
+                    }
+
+                    break;
+                }
+                case IMAGE_GRAY16_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_RGBA8_COLOR) {
+                        new_color.ga16.gray = twice16((color->rgba8.red + color->rgba8.green + color->rgba8.blue) / 3);
+                        new_color.ga16.alpha = twice16(color->rgba8.alpha);
+                    } else if (color->type == IMAGE_RGBA16_COLOR) {
+                        new_color.ga16.gray = twice16((color->rgba16.red & 0xFF + color->rgba16.green & 0xFF + color->rgba16.blue & 0xFF) / 3);
+                        new_color.ga16.alpha = color->rgba16.alpha;
+                    }
+
+                    break;
+                }
+            }
+
+            break;
+        }
+        case IMAGE_GRAY8_COLOR:
+        case IMAGE_GRAY16_COLOR: {
+            switch (type & 0x7F) {
+                case IMAGE_RGBA8_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_GRAY8_COLOR) {
+                        new_color.rgba8.red = color->ga8.gray;
+                        new_color.rgba8.green = color->ga8.gray;
+                        new_color.rgba8.blue = color->ga8.gray;
+                        new_color.rgba8.alpha = color->ga8.alpha;
+                    } else if ((color->type & 0x7F) == IMAGE_GRAY16_COLOR) {
+                        new_color.rgba8.red = color->ga16.gray & 0xFF;
+                        new_color.rgba8.green = color->ga16.gray & 0xFF;
+                        new_color.rgba8.blue = color->ga16.gray & 0xFF;
+                        new_color.rgba8.alpha = color->ga16.alpha & 0xFF;
+                    }
+
+                    break;
+                }
+                case IMAGE_RGBA16_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_GRAY8_COLOR) {
+                        new_color.rgba16.red = twice16(color->ga8.gray);
+                        new_color.rgba16.green = twice16(color->ga8.gray);
+                        new_color.rgba16.blue = twice16(color->ga8.gray);
+                        new_color.rgba16.alpha = twice16(color->ga8.alpha);
+                    } else if ((color->type & 0x7F) == IMAGE_GRAY16_COLOR) {
+                        new_color.rgba16.red = twice16(color->ga16.gray);
+                        new_color.rgba16.green = twice16(color->ga16.gray);
+                        new_color.rgba16.blue = twice16(color->ga16.gray);
+                        new_color.rgba16.alpha = twice16(color->ga16.alpha);
+                    }
+
+                    break;
+                }
+                case IMAGE_GRAY8_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_GRAY16_COLOR) {
+                        new_color.ga8.gray = color->ga16.gray & 0xFF;
+                        new_color.ga8.alpha = color->ga16.alpha & 0xFF;
+                    }
+
+                    break;
+                }
+                case IMAGE_GRAY16_COLOR: {
+                    if ((color->type & 0x7F) == IMAGE_GRAY8_COLOR) {
+                        new_color.ga16.gray = twice16(color->ga8.gray);
+                        new_color.ga16.alpha = twice16(color->ga8.alpha);
+                    }
+
+                    break;
+                }
+            }
+
+            break;
+        }
+    }
+
+    *color = new_color;
 }
 
 static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk* dest) {
