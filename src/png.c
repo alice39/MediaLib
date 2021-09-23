@@ -38,6 +38,11 @@ struct image_png_chunk_IHDR {
     uint8_t interlace;
 };
 
+struct image_png_chunk_PLTE {
+    uint16_t size;
+    struct image_color* pallete;
+};
+
 enum image_png_idat_type {
     PNG_IDAT_SCANLINES,
     PNG_IDAT_PIXELS
@@ -53,6 +58,7 @@ struct image_png_chunk_IDAT {
 
 struct image_png {
     struct image_png_chunk_IHDR ihdr;
+    struct image_png_chunk_PLTE plte;
     // IDAT needs to be in PIXELS instead of SCANLINES
     struct image_png_chunk_IDAT idat;
 
@@ -68,10 +74,13 @@ static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk*
 // return 0 if success, otherwise another number
 // ihdr can be null, just checking if chunk is an IHDR valid
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr);
+// return 0 if sucess, otherwise another number
+static int _png_read_chunk_PLTE(struct image_png_chunk* chunk, struct image_png_chunk_PLTE* plte);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat);
 
 static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk* chunk);
+static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
 
@@ -118,6 +127,9 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     ihdr->filter = 0;
     ihdr->interlace = 0;
 
+    image->plte.size = 0;
+    image->plte.pallete = malloc(0);
+
     struct image_png_chunk_IDAT* idat = &image->idat;
     idat->type = PNG_IDAT_PIXELS;
     uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth] / 8;
@@ -149,6 +161,8 @@ struct image_png* image_png_open(const char* path) {
     }
 
     struct image_png* image = malloc(sizeof(struct image_png));
+    image->plte.size = 0;
+    image->plte.pallete = malloc(0);
     image->idat.data = NULL;
     image->unknown_size = 0;
     image->unknown_chunks = NULL;
@@ -195,6 +209,17 @@ struct image_png* image_png_open(const char* path) {
 
             if (chunk.location != 0 || ihdr_ret != 0 || image->ihdr.compression != 0) {
                 // IHDR is invalid, it's not the first chunk or compression is not zlib
+
+                image_png_close(image);
+                image = NULL;
+                break;
+            }
+        } else if (strcmp(chunk.type, "PLTE") == 0) {
+            int plte_ret = _png_read_chunk_PLTE(&chunk, &image->plte);
+            free(chunk.data);
+
+            if (chunk.location == 0 || idat_chunk.length > 0 || plte_ret != 0) {
+                // PLTE is before than IHDR, IDAT was read before than PLTE or PLTE is invalid
 
                 image_png_close(image);
                 image = NULL;
@@ -363,6 +388,35 @@ void image_png_set_color(struct image_png* image, enum image_color_type type) {
     free(color_pixels);
 }
 
+void image_png_get_palette(struct image_png* image, uint16_t* psize, struct image_color** ppalette) {
+    uint16_t size = image->plte.size;
+    struct image_color* pallete = malloc(sizeof(struct image_color) * 3 * size);
+    memcpy(pallete, image->plte.pallete, sizeof(struct image_color) * 3 * size);
+
+    *psize = size;
+    *ppalette = pallete;
+}
+
+void image_png_set_palette(struct image_png* image, uint16_t size, struct image_color* pallete) {
+    if (size > 256) {
+        size = 256;
+    }
+
+    struct image_png_chunk_PLTE* plte = &image->plte;
+
+    if (size > 0) {
+        plte->size = size;
+        plte->pallete = realloc(plte->pallete, sizeof(struct image_color) * 3 * size);
+        memcpy(&plte->pallete, pallete, sizeof(struct image_color) * 3 * size);
+    } else if (image->ihdr.color == 3) {
+        // if indexed, it needs at least to have 1 pallete
+
+        plte->size = 1;
+        plte->pallete = realloc(plte->pallete, sizeof(struct image_color));
+        memset(plte->pallete, 0, sizeof(struct image_color));
+    }
+}
+
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color) {
     _png_execute_pixel(image, x, y, _png_get_pixel, color);
 }
@@ -376,6 +430,10 @@ struct image_png* image_png_copy(struct image_png* image) {
 
     if (copy_image != NULL) {
         memcpy(&copy_image->ihdr, &image->ihdr, sizeof(struct image_png_chunk_IHDR));
+
+        copy_image->plte.size = image->plte.size;
+        copy_image->plte.pallete = malloc(sizeof(struct image_color) * copy_image->plte.size);
+        memcpy(copy_image->plte.pallete, image->plte.pallete, sizeof(struct image_color) * copy_image->plte.size);
 
         copy_image->idat.type = image->idat.type;
         copy_image->idat.size = image->idat.size;
@@ -405,11 +463,21 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
 
     _png_write_chunk_IHDR(&image->ihdr, &chunks[0]);
 
+    uint8_t color = image->ihdr.color;
+    int requiresPallete = color == 3 || ((color == 2 || color == 6) && image->plte.size > 0) ? 1 : 0;
+    if (requiresPallete != 0) {
+        chunk_size += 1;
+        chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
+        memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
+
+        _png_write_chunk_PLTE(&image->plte, &chunks[image->idat.location]);
+    }
+
     _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_SCANLINES);
-    _png_write_chunk_IDAT(&image->idat, &chunks[image->idat.location]);
+    _png_write_chunk_IDAT(&image->idat, &chunks[image->idat.location + (requiresPallete != 0 ? 1 : 0)]);
     _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_PIXELS);
 
-    struct image_png_chunk* iend = &chunks[2 + image->unknown_size];
+    struct image_png_chunk* iend = &chunks[2 + (requiresPallete != 0 ? 1 : 0) + image->unknown_size];
     iend->length = 0;
     strcpy(iend->type, "IEND");
     iend->data = NULL;
@@ -417,7 +485,7 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
 
     for (uint32_t i = 0; i < image->unknown_size; i++) {
         struct image_png_chunk* chunk = &image->unknown_chunks[i];
-        _png_copy_chunk(chunk, &chunks[chunk->location]);
+        _png_copy_chunk(chunk, &chunks[chunk->location + (requiresPallete != 0 ? 1 : 0)]);
     }
 
     for (uint32_t i = 0; i < chunk_size; i++) {
@@ -470,6 +538,7 @@ void image_png_save(struct image_png* image, const char* path) {
 }
 
 void image_png_close(struct image_png* image) {
+    free(image->plte.pallete);
     free(image->idat.data);
 
     for (uint32_t i = 0; i < image->unknown_size; i++) {
@@ -637,6 +706,31 @@ static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_PLTE(struct image_png_chunk* chunk, struct image_png_chunk_PLTE* plte) {
+    if (chunk == NULL || strcmp(chunk->type, "PLTE") != 0 || chunk->length % 3 != 0 || chunk->length / 3 > 256) {
+        return 1;
+    }
+
+    if (plte == NULL) {
+        return 0;
+    }
+
+    plte->size = chunk->length / 3;
+
+    plte->pallete = malloc(sizeof(struct image_color) * plte->size);
+    for (uint16_t i = 0; i < plte->size; i++) {
+        struct image_color* color = &plte->pallete[i];
+
+        color->type = IMAGE_RGBA8_COLOR;
+        color->rgba8.red = chunk->data[i * 3];
+        color->rgba8.green = chunk->data[i * 3 + 1];
+        color->rgba8.blue = chunk->data[i * 3 + 2];
+        color->rgba8.alpha = 0;
+    }
+
+    return 0;
+}
+
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat) {
     if (chunk == NULL || strcmp(chunk->type, "IDAT") != 0) {
         return 1;
@@ -701,6 +795,32 @@ static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct imag
 
     uint32_t crc = MEDIA_CRC32_DEFAULT;
     crc = media_update_crc32(crc, (uint8_t *) "IHDR", 4);
+    crc = media_update_crc32(crc, chunk->data, chunk->length);
+
+    chunk->crc = MEDIA_CRC32(crc);
+}
+
+static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct image_png_chunk* chunk) {
+    uint16_t size = plte->size > 256 ? 256 : plte->size;
+    chunk->length = size * 3;
+    strcpy(chunk->type, "PLTE");
+
+    if (chunk->data == NULL) {
+        chunk->data = malloc(sizeof(uint8_t) * chunk->length);
+    } else {
+        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
+    }
+
+    for (uint16_t i = 0; i < size; i++) {
+        struct image_color* color = &plte->pallete[i];
+
+        chunk->data[i * 3] = color->rgba8.red;
+        chunk->data[i * 3 + 1] = color->rgba8.green;
+        chunk->data[i * 3 + 2] = color->rgba8.blue;
+    }
+
+    uint32_t crc = MEDIA_CRC32_DEFAULT;
+    crc = media_update_crc32(crc, (uint8_t *) "PLTE", 4);
     crc = media_update_crc32(crc, chunk->data, chunk->length);
 
     chunk->crc = MEDIA_CRC32(crc);

@@ -71,6 +71,8 @@ void image_png_get_dimension(struct image_png* image, struct image_dimension* di
 int image_png_set_dimension(struct image_png* image, struct image_dimension dimension);
 void image_png_get_color(struct image_png* image, enum image_color_type* type);
 void image_png_set_color(struct image_png* image, enum image_color_type type);
+void image_png_get_palette(struct image_png* image, uint16_t* psize, struct image_color** ppalette);
+void image_png_set_palette(struct image_png* image, uint16_t size, struct image_color* pallete);
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color);
 void image_png_set_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color color);
 struct image_png* image_png_copy(struct image_png* image);
