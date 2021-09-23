@@ -24,8 +24,6 @@ struct image_png_chunk {
     char type[5];
     uint8_t* data;
     uint32_t crc;
-
-    uint32_t location;
 };
 
 struct image_png_chunk_IHDR {
@@ -52,8 +50,6 @@ struct image_png_chunk_IDAT {
     enum image_png_idat_type type;
     uint32_t size;
     uint8_t* data;
-
-    uint32_t location;
 };
 
 struct image_png {
@@ -136,7 +132,6 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     idat->size = width * height * pixel_size;
     idat->data = malloc(sizeof(uint8_t) * idat->size);
     memset(idat->data, 0, sizeof(uint8_t) * idat->size);
-    idat->location = 1;
 
     image->unknown_size = 0;
     image->unknown_chunks = NULL;
@@ -194,8 +189,6 @@ struct image_png* image_png_open(const char* path) {
         fread(&chunk.crc, sizeof(uint32_t), 1, file);
         chunk.crc = convert_int_be(chunk.crc);
 
-        chunk.location = location++;
-
         printf("Chunk: %d %s\n", chunk.length, chunk.type);
 
         if (strcmp(chunk.type, "IEND") == 0) {
@@ -207,7 +200,7 @@ struct image_png* image_png_open(const char* path) {
             int ihdr_ret = _png_read_chunk_IHDR(&chunk, &image->ihdr);
             free(chunk.data);
 
-            if (chunk.location != 0 || ihdr_ret != 0 || image->ihdr.compression != 0) {
+            if (location != 0 || ihdr_ret != 0 || image->ihdr.compression != 0) {
                 // IHDR is invalid, it's not the first chunk or compression is not zlib
 
                 image_png_close(image);
@@ -218,7 +211,7 @@ struct image_png* image_png_open(const char* path) {
             int plte_ret = _png_read_chunk_PLTE(&chunk, &image->plte);
             free(chunk.data);
 
-            if (chunk.location == 0 || idat_chunk.length > 0 || plte_ret != 0) {
+            if (location == 0 || idat_chunk.length > 0 || plte_ret != 0) {
                 // PLTE is before than IHDR, IDAT was read before than PLTE or PLTE is invalid
 
                 image_png_close(image);
@@ -252,6 +245,8 @@ struct image_png* image_png_open(const char* path) {
             image->unknown_chunks = realloc(image->unknown_chunks, sizeof(struct image_png_chunk) * image->unknown_size);
             memcpy(&image->unknown_chunks[image->unknown_size - 1], &chunk, sizeof(struct image_png_chunk));
         }
+
+        location++;
     } while (1);
 
     if (image != NULL) {
@@ -439,7 +434,6 @@ struct image_png* image_png_copy(struct image_png* image) {
         copy_image->idat.size = image->idat.size;
         copy_image->idat.data = malloc(sizeof(uint8_t) * copy_image->idat.size);
         memcpy(copy_image->idat.data, image->idat.data, sizeof(uint8_t) * copy_image->idat.size);
-        copy_image->idat.location = image->idat.location;
 
         copy_image->unknown_size = image->unknown_size;
         copy_image->unknown_chunks = malloc(sizeof(struct image_png_chunk) * copy_image->unknown_size);
@@ -457,11 +451,13 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
 
     memcpy(bytes, PNG_FILE_HEADER, sizeof(uint8_t) * 8);
 
+    uint32_t next_chunk = 0;
+
     uint32_t chunk_size = 3 + image->unknown_size;
     struct image_png_chunk* chunks = malloc(chunk_size * sizeof(struct image_png_chunk));
     memset(chunks, 0, sizeof(struct image_png_chunk) * chunk_size);
 
-    _png_write_chunk_IHDR(&image->ihdr, &chunks[0]);
+    _png_write_chunk_IHDR(&image->ihdr, &chunks[next_chunk++]);
 
     uint8_t color = image->ihdr.color;
     int requiresPallete = color == 3 || ((color == 2 || color == 6) && image->plte.size > 0) ? 1 : 0;
@@ -470,14 +466,14 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
         chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
         memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
 
-        _png_write_chunk_PLTE(&image->plte, &chunks[image->idat.location]);
+        _png_write_chunk_PLTE(&image->plte, &chunks[next_chunk++]);
     }
 
     _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_SCANLINES);
-    _png_write_chunk_IDAT(&image->idat, &chunks[image->idat.location + (requiresPallete != 0 ? 1 : 0)]);
+    _png_write_chunk_IDAT(&image->idat, &chunks[next_chunk++]);
     _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_PIXELS);
 
-    struct image_png_chunk* iend = &chunks[2 + (requiresPallete != 0 ? 1 : 0) + image->unknown_size];
+    struct image_png_chunk* iend = &chunks[next_chunk];
     iend->length = 0;
     strcpy(iend->type, "IEND");
     iend->data = NULL;
@@ -485,7 +481,7 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
 
     for (uint32_t i = 0; i < image->unknown_size; i++) {
         struct image_png_chunk* chunk = &image->unknown_chunks[i];
-        _png_copy_chunk(chunk, &chunks[chunk->location + (requiresPallete != 0 ? 1 : 0)]);
+        _png_copy_chunk(chunk, &chunks[next_chunk++]);
     }
 
     for (uint32_t i = 0; i < chunk_size; i++) {
@@ -686,7 +682,6 @@ static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk*
     dest->data = malloc(sizeof(uint8_t) * src->length);
     memcpy(dest->data, src->data, sizeof(uint8_t) * src->length);
     dest->crc = src->crc;
-    dest->location = src->location;
 }
 
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr) {
@@ -743,7 +738,6 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
     idat->type = PNG_IDAT_SCANLINES;
     idat->size = 0;
     idat->data = malloc(0);
-    idat->location = chunk->location;
 
     z_stream stream;
     memset(&stream, 0, sizeof(z_stream));
