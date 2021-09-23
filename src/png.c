@@ -183,32 +183,21 @@ struct image_png* image_png_open(const char* path) {
 
         printf("Chunk: %d %s\n", chunk.length, chunk.type);
 
-        if (strcmp(chunk.type, "IEND") == 0) {
-            free(chunk.data);
-            break;
-        }
+        int invalid = 0;
 
         if (strcmp(chunk.type, "IHDR") == 0) {
             int ihdr_ret = _png_read_chunk_IHDR(&chunk, &image->ihdr);
-            free(chunk.data);
 
             if (location != 0 || ihdr_ret != 0 || image->ihdr.compression != 0) {
                 // IHDR is invalid, it's not the first chunk or compression is not zlib
-
-                image_png_close(image);
-                image = NULL;
-                break;
+                invalid = 1;
             }
         } else if (strcmp(chunk.type, "PLTE") == 0) {
             int plte_ret = _png_read_chunk_PLTE(&chunk, &image->plte);
-            free(chunk.data);
 
             if (location == 0 || idat_chunk.length > 0 || plte_ret != 0) {
                 // PLTE is before than IHDR, IDAT was read before than PLTE or PLTE is invalid
-
-                image_png_close(image);
-                image = NULL;
-                break;
+                invalid = 1;
             }
         } else if (strcmp(chunk.type, "IDAT") == 0) {
             if (idat_chunk.length > 0) {
@@ -223,21 +212,22 @@ struct image_png* image_png_open(const char* path) {
                 _png_copy_chunk(&chunk, &idat_chunk);
             }
 
-            free(chunk.data);
-
             if (location == 0) {
                 // IDAT is before than IHDR
-
-                image_png_close(image);
-                image = NULL;
-                break;
+                invalid = 1;
             }
-        } else {
-            free(chunk.data);
+        }
+
+        free(chunk.data);
+
+        if (invalid != 0) {
+            image_png_close(image);
+            image = NULL;
+            break;
         }
 
         location++;
-    } while (1);
+    } while (strcmp(chunk.type, "IEND") != 0);
 
     if (image != NULL) {
         _png_read_chunk_IDAT(&idat_chunk, &image->idat);
