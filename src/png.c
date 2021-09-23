@@ -57,9 +57,6 @@ struct image_png {
     struct image_png_chunk_PLTE plte;
     // IDAT needs to be in PIXELS instead of SCANLINES
     struct image_png_chunk_IDAT idat;
-
-    uint32_t unknown_size;
-    struct image_png_chunk* unknown_chunks;
 };
 
 static inline uint32_t convert_int_be(uint32_t value);
@@ -133,9 +130,6 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     idat->data = malloc(sizeof(uint8_t) * idat->size);
     memset(idat->data, 0, sizeof(uint8_t) * idat->size);
 
-    image->unknown_size = 0;
-    image->unknown_chunks = NULL;
-
     return image;
 }
 
@@ -159,8 +153,6 @@ struct image_png* image_png_open(const char* path) {
     image->plte.size = 0;
     image->plte.pallete = malloc(0);
     image->idat.data = NULL;
-    image->unknown_size = 0;
-    image->unknown_chunks = NULL;
 
     struct image_png_chunk idat_chunk;
     memset(&idat_chunk, 0, sizeof(struct image_png_chunk));
@@ -241,9 +233,7 @@ struct image_png* image_png_open(const char* path) {
                 break;
             }
         } else {
-            image->unknown_size++;
-            image->unknown_chunks = realloc(image->unknown_chunks, sizeof(struct image_png_chunk) * image->unknown_size);
-            memcpy(&image->unknown_chunks[image->unknown_size - 1], &chunk, sizeof(struct image_png_chunk));
+            free(chunk.data);
         }
 
         location++;
@@ -434,12 +424,6 @@ struct image_png* image_png_copy(struct image_png* image) {
         copy_image->idat.size = image->idat.size;
         copy_image->idat.data = malloc(sizeof(uint8_t) * copy_image->idat.size);
         memcpy(copy_image->idat.data, image->idat.data, sizeof(uint8_t) * copy_image->idat.size);
-
-        copy_image->unknown_size = image->unknown_size;
-        copy_image->unknown_chunks = malloc(sizeof(struct image_png_chunk) * copy_image->unknown_size);
-        for (uint32_t i = 0; i < copy_image->unknown_size; i++) {
-            _png_copy_chunk(&image->unknown_chunks[i], &copy_image->unknown_chunks[i]);
-        }
     }
 
     return copy_image;
@@ -453,7 +437,7 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
 
     uint32_t next_chunk = 0;
 
-    uint32_t chunk_size = 3 + image->unknown_size;
+    uint32_t chunk_size = 3;
     struct image_png_chunk* chunks = malloc(chunk_size * sizeof(struct image_png_chunk));
     memset(chunks, 0, sizeof(struct image_png_chunk) * chunk_size);
 
@@ -478,11 +462,6 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     strcpy(iend->type, "IEND");
     iend->data = NULL;
     iend->crc = MEDIA_CRC32(media_update_crc32(MEDIA_CRC32_DEFAULT, (uint8_t*) "IEND", 4));
-
-    for (uint32_t i = 0; i < image->unknown_size; i++) {
-        struct image_png_chunk* chunk = &image->unknown_chunks[i];
-        _png_copy_chunk(chunk, &chunks[next_chunk++]);
-    }
 
     for (uint32_t i = 0; i < chunk_size; i++) {
         struct image_png_chunk* chunk = &chunks[i];
@@ -536,13 +515,6 @@ void image_png_save(struct image_png* image, const char* path) {
 void image_png_close(struct image_png* image) {
     free(image->plte.pallete);
     free(image->idat.data);
-
-    for (uint32_t i = 0; i < image->unknown_size; i++) {
-        free(image->unknown_chunks[i].data);
-    }
-
-    free(image->unknown_chunks);
-
     free(image);
 }
 
