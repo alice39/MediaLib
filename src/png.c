@@ -55,6 +55,15 @@ struct image_png_chunk_tRNS {
     };
 };
 
+struct image_png_chunk_tIME {
+    uint16_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+};
+
 enum image_png_idat_type {
     PNG_IDAT_SCANLINES,
     PNG_IDAT_PIXELS
@@ -72,6 +81,8 @@ struct image_png {
 
     // there is no trns if size is 0
     struct image_png_chunk_tRNS trns;
+    // there is no time if all is set up to 0
+    struct image_png_chunk_tIME time;
 
     // IDAT needs to be in PIXELS instead of SCANLINES
     struct image_png_chunk_IDAT idat;
@@ -89,6 +100,8 @@ static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_PLTE(struct image_png_chunk* chunk, struct image_png_chunk_PLTE* plte);
 // return 0 if success, also type is gonna be 8BITS by default, check _png_convert_chunk_tRNS
 static int _png_read_chunk_tRNS(struct image_png_chunk* chunk, struct image_png_chunk_tRNS* trns);
+// return 0 if success, otherwise another number
+static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat);
 
@@ -96,6 +109,7 @@ static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct imag
 static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct image_png_chunk* chunk);
 // it needs to be in 8BITS type
 static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct image_png_chunk* chunk);
+static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
 
@@ -104,6 +118,9 @@ static void _png_convert_chunk_tRNS(struct image_png_chunk_tRNS* trns,
 static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
                                     struct image_png_chunk_IDAT* idat,
                                     enum image_png_idat_type type);
+
+// return 0 if no time, otherwise any number if there is time
+static inline int _png_check_time(struct image_png_chunk_tIME* time);
 
 // just if IDAT chunk is not used anymore
 static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat);
@@ -151,6 +168,8 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     image->trns.size = 0;
     image->trns.data_8bits = NULL;
 
+    memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
+
     struct image_png_chunk_IDAT* idat = &image->idat;
     idat->type = PNG_IDAT_PIXELS;
     uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth] / 8;
@@ -184,6 +203,7 @@ struct image_png* image_png_open(const char* path) {
     image->trns.size = 0;
     image->trns.data_8bits = NULL;
     image->idat.data = NULL;
+    memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     struct image_png_chunk idat_chunk;
     memset(&idat_chunk, 0, sizeof(struct image_png_chunk));
@@ -238,6 +258,12 @@ struct image_png* image_png_open(const char* path) {
                 invalid = 1;
             } else if (color == 0 || color == 2) {
                 _png_convert_chunk_tRNS(&image->trns, PNG_tRNS_16BITS);
+            }
+        } else if (strcmp(chunk.type, "tIME") == 0) {
+            int time_ret = _png_read_chunk_tIME(&chunk, &image->time);
+
+            if (location == 0 || time_ret != 0) {
+                invalid = 1;
             }
         } else if (strcmp(chunk.type, "IDAT") == 0) {
             if (idat_chunk.length > 0) {
@@ -440,6 +466,24 @@ void image_png_set_pixel(struct image_png* image, uint32_t x, uint32_t y, struct
     _png_execute_pixel(image, x, y, _png_set_pixel, &color);
 }
 
+void image_png_get_timestamp(struct image_png* image, struct image_time* time) {
+    time->year = image->time.year;
+    time->month = image->time.month;
+    time->day = image->time.day;
+    time->hour = image->time.hour;
+    time->minute = image->time.minute;
+    time->second = image->time.second;
+}
+
+void image_png_set_timestamp(struct image_png* image, struct image_time time) {
+    image->time.year = time.year;
+    image->time.month = time.month;
+    image->time.day = time.day;
+    image->time.hour = time.hour;
+    image->time.minute = time.minute;
+    image->time.second = time.second;
+}
+
 struct image_png* image_png_copy(struct image_png* image) {
     struct image_png* copy_image = malloc(sizeof(struct image_png));
 
@@ -492,6 +536,14 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
             _png_write_chunk_tRNS(&image->trns, &chunks[next_chunk++]);
             _png_convert_chunk_tRNS(&image->trns, trns_type);
         }
+    }
+
+    if (_png_check_time(&image->time) != 0) {
+        chunk_size += 1;
+        chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
+        memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
+
+        _png_write_chunk_tIME(&image->time, &chunks[next_chunk++]);
     }
 
     _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_SCANLINES);
@@ -573,6 +625,16 @@ static inline uint32_t convert_int_be(uint32_t value) {
 
     uint8_t* bytes = (uint8_t *) &value;
     return bytes[0] << 24 | bytes[1] << 16 | bytes[2] << 8 | bytes[3];
+}
+
+static inline uint16_t convert_short_be(uint16_t value) {
+    if (media_actual_endian() == MEDIA_BIG_ENDIAN) {
+        // no need to shift
+        return value;
+    }
+
+    uint8_t* bytes = (uint8_t *) &value;
+    return bytes[0] << 8 | bytes[1];
 }
 
 inline static uint16_t twice16(uint8_t value) {
@@ -771,6 +833,21 @@ static int _png_read_chunk_tRNS(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time) {
+    if (chunk == NULL || strcmp(chunk->type, "tIME") != 0 || chunk->length != 7) {
+        return 1;
+    }
+
+    if (time == NULL) {
+        return 0;
+    }
+
+    memcpy(time, chunk->data, sizeof(uint8_t) * 7);
+    time->year = convert_short_be(time->year);
+
+    return 0;
+}
+
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat) {
     if (chunk == NULL || strcmp(chunk->type, "IDAT") != 0) {
         return 1;
@@ -879,6 +956,28 @@ static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct imag
 
     uint32_t crc = MEDIA_CRC32_DEFAULT;
     crc = media_update_crc32(crc, (uint8_t *) "tRNS", 4);
+    crc = media_update_crc32(crc, chunk->data, chunk->length);
+
+    chunk->crc = MEDIA_CRC32(crc);
+}
+
+
+static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk) {
+    chunk->length = 7;
+    strcpy(chunk->type, "tIME");
+
+    if (chunk->data == NULL) {
+        chunk->data = malloc(sizeof(uint8_t) * 7);
+    } else {
+        chunk->data = realloc(chunk->data, sizeof(uint8_t) * 7); 
+    }
+
+    time->year = convert_short_be(time->year);
+    memcpy(chunk->data, time, sizeof(uint8_t) * 7);
+    time->year = convert_short_be(time->year);
+
+    uint32_t crc = MEDIA_CRC32_DEFAULT;
+    crc = media_update_crc32(crc, (uint8_t *) "tIME", 4);
     crc = media_update_crc32(crc, chunk->data, chunk->length);
 
     chunk->crc = MEDIA_CRC32(crc);
@@ -1045,6 +1144,10 @@ static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
         case PNG_IDAT_SCANLINES: _png_IDAT_to_scanlines(ihdr, idat); break;
         case PNG_IDAT_PIXELS: _png_IDAT_to_pixels(ihdr, idat); break;
     }
+}
+
+static inline int _png_check_time(struct image_png_chunk_tIME* time) {
+    return time->year != 0 || time->month != 0 || time->day != 0 || time->hour != 0 || time->minute != 0 || time->second != 0;
 }
 
 static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat) {

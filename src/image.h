@@ -64,6 +64,15 @@ struct image_dimension {
     uint32_t height;
 };
 
+struct image_time {
+    uint16_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+};
+
 struct image_png* image_png_create(enum image_color_type type, uint32_t width, uint32_t height);
 struct image_png* image_png_open(const char* path);
 void image_png_get_dimension(struct image_png* image, struct image_dimension* dimension);
@@ -75,6 +84,8 @@ void image_png_get_palette(struct image_png* image, uint16_t* psize, struct imag
 void image_png_set_palette(struct image_png* image, uint16_t size, struct image_color* pallete);
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color);
 void image_png_set_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color color);
+void image_png_get_timestamp(struct image_png* image, struct image_time* time);
+void image_png_set_timestamp(struct image_png* image, struct image_time time);
 struct image_png* image_png_copy(struct image_png* image);
 void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psize);
 void image_png_save(struct image_png* image, const char* path);
