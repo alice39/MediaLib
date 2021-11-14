@@ -41,6 +41,20 @@ struct image_png_chunk_PLTE {
     struct image_color* pallete;
 };
 
+enum image_png_trns_type {
+    PNG_tRNS_8BITS,
+    PNG_tRNS_16BITS
+};
+
+struct image_png_chunk_tRNS {
+    enum image_png_trns_type type;
+    uint32_t size;
+    union {
+        uint8_t* data_8bits;
+        uint16_t* data_16bits;
+    };
+};
+
 enum image_png_idat_type {
     PNG_IDAT_SCANLINES,
     PNG_IDAT_PIXELS
@@ -55,6 +69,10 @@ struct image_png_chunk_IDAT {
 struct image_png {
     struct image_png_chunk_IHDR ihdr;
     struct image_png_chunk_PLTE plte;
+
+    // there is no trns if size is 0
+    struct image_png_chunk_tRNS trns;
+
     // IDAT needs to be in PIXELS instead of SCANLINES
     struct image_png_chunk_IDAT idat;
 };
@@ -69,14 +87,20 @@ static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk*
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr);
 // return 0 if sucess, otherwise another number
 static int _png_read_chunk_PLTE(struct image_png_chunk* chunk, struct image_png_chunk_PLTE* plte);
+// return 0 if success, also type is gonna be 8BITS by default, check _png_convert_chunk_tRNS
+static int _png_read_chunk_tRNS(struct image_png_chunk* chunk, struct image_png_chunk_tRNS* trns);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat);
 
 static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk* chunk);
 static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct image_png_chunk* chunk);
+// it needs to be in 8BITS type
+static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
 
+static void _png_convert_chunk_tRNS(struct image_png_chunk_tRNS* trns,
+                                    enum image_png_trns_type type);
 static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
                                     struct image_png_chunk_IDAT* idat,
                                     enum image_png_idat_type type);
@@ -123,6 +147,10 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     image->plte.size = 0;
     image->plte.pallete = malloc(0);
 
+    image->trns.type = PNG_tRNS_8BITS;
+    image->trns.size = 0;
+    image->trns.data_8bits = NULL;
+
     struct image_png_chunk_IDAT* idat = &image->idat;
     idat->type = PNG_IDAT_PIXELS;
     uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth] / 8;
@@ -152,6 +180,9 @@ struct image_png* image_png_open(const char* path) {
     struct image_png* image = malloc(sizeof(struct image_png));
     image->plte.size = 0;
     image->plte.pallete = malloc(0);
+    image->trns.type = PNG_tRNS_8BITS;
+    image->trns.size = 0;
+    image->trns.data_8bits = NULL;
     image->idat.data = NULL;
 
     struct image_png_chunk idat_chunk;
@@ -198,6 +229,15 @@ struct image_png* image_png_open(const char* path) {
             if (location == 0 || idat_chunk.length > 0 || plte_ret != 0) {
                 // PLTE is before than IHDR, IDAT was read before than PLTE or PLTE is invalid
                 invalid = 1;
+            }
+        } else if (strcmp(chunk.type, "tRNS") == 0) {
+            int trns_ret = _png_read_chunk_tRNS(&chunk, &image->trns);
+            uint8_t color = image->ihdr.color;
+            
+            if (location == 0 || idat_chunk.length > 0 || trns_ret != 0) {
+                invalid = 1;
+            } else if (color == 0 || color == 2) {
+                _png_convert_chunk_tRNS(&image->trns, PNG_tRNS_16BITS);
             }
         } else if (strcmp(chunk.type, "IDAT") == 0) {
             if (idat_chunk.length > 0) {
@@ -441,6 +481,17 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
         memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
 
         _png_write_chunk_PLTE(&image->plte, &chunks[next_chunk++]);
+
+        if (image->trns.size > 0) {
+            chunk_size += 1; 
+            chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
+            memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
+
+            enum image_png_trns_type trns_type = image->trns.type;
+            _png_convert_chunk_tRNS(&image->trns, PNG_tRNS_8BITS);
+            _png_write_chunk_tRNS(&image->trns, &chunks[next_chunk++]);
+            _png_convert_chunk_tRNS(&image->trns, trns_type);
+        }
     }
 
     _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_SCANLINES);
@@ -503,6 +554,12 @@ void image_png_save(struct image_png* image, const char* path) {
 }
 
 void image_png_close(struct image_png* image) {
+    if (image->trns.type == PNG_tRNS_8BITS) {
+        free(image->trns.data_8bits);
+    } else if (image->trns.type == PNG_tRNS_16BITS) {
+        free(image->trns.data_16bits);
+    }
+
     free(image->plte.pallete);
     free(image->idat.data);
     free(image);
@@ -688,6 +745,32 @@ static int _png_read_chunk_PLTE(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_tRNS(struct image_png_chunk* chunk, struct image_png_chunk_tRNS* trns) {
+    if (chunk == NULL || strcmp(chunk->type, "tRNS") != 0) {
+        return 1;
+    }
+
+    if (trns == NULL) {
+        return 0;
+    }
+
+    // free some pointer if trns has some size
+    if (trns->size > 0) {
+        if (trns->type == PNG_tRNS_8BITS) {
+            free(trns->data_8bits);
+        } else if (trns->type == PNG_tRNS_16BITS) {
+            free(trns->data_16bits);
+        }
+    }
+
+    trns->type = PNG_tRNS_8BITS;
+    trns->size = chunk->length;
+    trns->data_8bits = malloc(sizeof(uint8_t) * trns->size);
+    memcpy(trns->data_8bits, chunk->data, chunk->length);
+
+    return 0;
+}
+
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat) {
     if (chunk == NULL || strcmp(chunk->type, "IDAT") != 0) {
         return 1;
@@ -782,6 +865,25 @@ static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct imag
     chunk->crc = MEDIA_CRC32(crc);
 }
 
+static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct image_png_chunk* chunk) {
+    chunk->length = trns->size;
+    strcpy(chunk->type, "tRNS");
+    
+    if (chunk->data == NULL) {
+        chunk->data = malloc(sizeof(uint8_t) * chunk->length);
+    } else {
+        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
+    }
+
+    memcpy(chunk->data, trns->data_8bits, sizeof(uint8_t) * chunk->length);
+
+    uint32_t crc = MEDIA_CRC32_DEFAULT;
+    crc = media_update_crc32(crc, (uint8_t *) "tRNS", 4);
+    crc = media_update_crc32(crc, chunk->data, chunk->length);
+
+    chunk->crc = MEDIA_CRC32(crc);
+}
+
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk) {
     chunk->length = 0;
     strcpy(chunk->type, "IDAT");
@@ -823,6 +925,42 @@ static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct imag
     crc = media_update_crc32(crc, chunk->data, chunk->length);
 
     chunk->crc = MEDIA_CRC32(crc);
+}
+
+static void _png_convert_chunk_tRNS(struct image_png_chunk_tRNS* trns,
+                                    enum image_png_trns_type type) {
+    // nothing to do
+    if (trns->type == type) {
+        return;
+    }
+
+    switch (type) {
+        case PNG_tRNS_8BITS: {
+            uint8_t* data_8bits = malloc(sizeof(uint8_t) * trns->size * 2);
+
+            for (size_t i = 0; i < trns->size; i++) {
+                uint16_t byte = convert_int_be(trns->data_16bits[i]);
+
+                data_8bits[i * 2] = byte;
+                data_8bits[i * 2 + 1] = (byte >> 8) & 0xFF;
+            }
+
+            free(trns->data_16bits);
+            trns->data_8bits = data_8bits;
+            break;
+        }
+        case PNG_tRNS_16BITS: {
+            uint16_t* data_16bits = malloc(sizeof(uint16_t) * trns->size / 2);
+
+            for (size_t i = 0; i < trns->size; i++) {
+                data_16bits[i] = convert_int_be(trns->data_8bits[i * 2] | (trns->data_8bits[i * 2 + 1] >> 8));
+            }
+            
+            free(trns->data_8bits);
+            trns->data_16bits = data_16bits;
+            break;
+        }
+    }
 }
 
 static void _png_IDAT_to_scanlines(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk_IDAT* idat) {
