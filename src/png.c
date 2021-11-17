@@ -77,6 +77,23 @@ struct image_png_chunk_iCCP {
     uint8_t* data;
 };
 
+enum image_png_sbit_type {
+    PNG_sBIT_GREY,
+    PNG_sBIT_RGB_OR_INDEXED,
+    PNG_sBIT_GREYALPHA,
+    PNG_sBIT_RGBALPHA
+};
+
+struct image_png_chunk_sBIT {
+    enum image_png_sbit_type type;
+
+    uint8_t grey;
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue; 
+    uint8_t alpha;
+};
+
 struct image_png_chunk_tIME {
     uint16_t year;
     uint8_t month;
@@ -109,6 +126,8 @@ struct image_png {
     struct image_png_chunk_gAMA gama;
     // there is no iccp if all is set up to 0
     struct image_png_chunk_iCCP iccp;
+    // there is no sbit if all is set up to 0 according to type
+    struct image_png_chunk_sBIT sbit;
     // there is no time if all is set up to 0
     struct image_png_chunk_tIME time;
 
@@ -133,6 +152,7 @@ static int _png_read_chunk_cHRM(struct image_png_chunk* chunk, struct image_png_
 // return 0 if success, otherise another number
 static int _png_read_chunk_gAMA(struct image_png_chunk* chunk, struct image_png_chunk_gAMA* gama);
 static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_chunk_iCCP* iccp);
+static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_chunk_sBIT* sbit);
 // return 0 if success, otherwise another number
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
@@ -145,6 +165,7 @@ static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct imag
 static void _png_write_chunk_cHRM(struct image_png_chunk_cHRM* chrm, struct image_png_chunk* chunk);
 static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct image_png_chunk* chunk);
 static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct image_png_chunk* chunk);
+static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct image_png_chunk* chunk);
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
@@ -155,8 +176,11 @@ static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
                                     struct image_png_chunk_IDAT* idat,
                                     enum image_png_idat_type type);
 
+static inline enum image_png_sbit_type _png_color_to_sbit(uint8_t color);
+
 static inline int _png_check_chrm(struct image_png_chunk_cHRM* chrm);
 static inline int _png_check_iccp(struct image_png_chunk_iCCP* iccp);
+static inline int _png_check_sbit(struct image_png_chunk_sBIT* sbit);
 // return 0 if no time, otherwise any number if there is time
 static inline int _png_check_time(struct image_png_chunk_tIME* time);
 
@@ -209,7 +233,10 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     memset(&image->chrm, 0, sizeof(struct image_png_chunk_cHRM));
     memset(&image->gama, 0, sizeof(struct image_png_chunk_gAMA));
     memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
+    memset(&image->sbit, 0, sizeof(struct image_png_chunk_sBIT));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
+
+    image->sbit.type = _png_color_to_sbit(ihdr->color);
 
     struct image_png_chunk_IDAT* idat = &image->idat;
     idat->type = PNG_IDAT_PIXELS;
@@ -247,6 +274,7 @@ struct image_png* image_png_open(const char* path) {
     memset(&image->chrm, 0, sizeof(struct image_png_chunk_cHRM));
     memset(&image->gama, 0, sizeof(struct image_png_chunk_gAMA));
     memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
+    memset(&image->sbit, 0, sizeof(struct image_png_chunk_sBIT));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     struct image_png_chunk idat_chunk;
@@ -321,6 +349,12 @@ struct image_png* image_png_open(const char* path) {
             if (location == 0 || iccp_ret != 0) {
                 invalid = 1;
             }
+        } else if (strcmp(chunk.type, "sBIT") == 0) {
+            int sbit_ret = _png_read_chunk_sBIT(&chunk, &image->sbit);
+
+            if (location == 0 || sbit_ret != 0) {
+                invalid = 1;
+            }
         } else if (strcmp(chunk.type, "tIME") == 0) {
             int time_ret = _png_read_chunk_tIME(&chunk, &image->time);
 
@@ -358,6 +392,8 @@ struct image_png* image_png_open(const char* path) {
     } while (strcmp(chunk.type, "IEND") != 0);
 
     if (image != NULL) {
+        image->sbit.type = _png_color_to_sbit(image->ihdr.color);
+
         _png_read_chunk_IDAT(&idat_chunk, &image->idat);
         _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_PIXELS);
     }
@@ -476,6 +512,8 @@ void image_png_set_color(struct image_png* image, enum image_color_type type) {
     ihdr->color = color;
     ihdr->depth = depth;
 
+    image->sbit.type = _png_color_to_sbit(image->ihdr.color);
+
     uint32_t pixel_size = PNG_BITS_TYPE[ihdr->color][ihdr->depth];
     idat->size = ihdr->width * ihdr->height * pixel_size;
     idat->data = realloc(idat->data, sizeof(uint8_t) * idat->size);
@@ -497,6 +535,68 @@ void image_png_get_gamma(struct image_png* image, uint32_t* gamma) {
 
 void image_png_set_gamma(struct image_png* image, uint32_t gamma) {
     image->gama.gamma = gamma;
+}
+
+void image_png_get_sbit(struct image_png* image, struct image_color* color) {
+    struct image_png_chunk_sBIT* sbit = &image->sbit;
+
+    switch (sbit->type) {
+        case PNG_sBIT_GREY:
+        case PNG_sBIT_GREYALPHA: {
+            color->type = IMAGE_GRAY8_COLOR;
+            color->ga8.gray = sbit->grey;
+
+            if (sbit->type == PNG_sBIT_GREYALPHA) {
+                color->type |= IMAGE_ALPHA_BIT;
+                color->ga8.alpha = sbit->alpha;
+            }
+
+            break;
+        }
+        case PNG_sBIT_RGB_OR_INDEXED:
+        case PNG_sBIT_RGBALPHA: {
+            color->type = IMAGE_RGBA8_COLOR;
+            color->rgba8.red = sbit->red;
+            color->rgba8.green = sbit->green;
+            color->rgba8.blue = sbit->blue;
+
+            if (sbit->type == PNG_sBIT_RGBALPHA) {
+                color->type |= IMAGE_ALPHA_BIT;
+                color->rgba8.alpha = sbit->alpha;
+            }
+
+            break;
+        }
+    }
+}
+
+void image_png_set_sbit(struct image_png* image, struct image_color color) {
+    struct image_png_chunk_sBIT* sbit = &image->sbit;
+
+    switch (sbit->type) {
+        case PNG_sBIT_GREY:
+        case PNG_sBIT_GREYALPHA: {
+            sbit->grey = color.ga8.gray;
+
+            if (sbit->type == PNG_sBIT_GREYALPHA) {
+                sbit->alpha = color.ga8.alpha;
+            }
+
+            break;
+        }
+        case PNG_sBIT_RGB_OR_INDEXED:
+        case PNG_sBIT_RGBALPHA: {
+            sbit->red = color.rgba8.red;
+            sbit->green = color.rgba8.green;
+            sbit->blue = color.rgba8.blue;
+
+            if (sbit->type == PNG_sBIT_RGBALPHA) {
+                sbit->alpha = color.rgba8.alpha;
+            }
+
+            break;
+        }
+    }
 }
 
 void image_png_get_palette(struct image_png* image, uint16_t* psize, struct image_color** ppalette) {
@@ -606,6 +706,11 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     if (_png_check_iccp(&image->iccp)) {
         _png_addcapicity_tobytes(&chunk_size, &chunks);
         _png_write_chunk_iCCP(&image->iccp, &chunks[next_chunk++]);
+    }
+
+    if (_png_check_sbit(&image->sbit)) {
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
+        _png_write_chunk_sBIT(&image->sbit, &chunks[next_chunk++]);
     }
 
     uint8_t color = image->ihdr.color;
@@ -973,6 +1078,47 @@ static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_chunk_sBIT* sbit) {
+    if (chunk == NULL || strcmp(chunk->type, "sBIT") != 0) {
+        return 1;
+    }
+
+    if (sbit == NULL) {
+        return 0;
+    }
+
+    switch (chunk->length) {
+        case 1: {
+            sbit->type = PNG_sBIT_GREY;
+            sbit->grey = chunk->data[0];
+            break;
+        }
+        case 2: {
+            sbit->type = PNG_sBIT_GREYALPHA;
+            sbit->grey = chunk->data[0];
+            sbit->alpha = chunk->data[1];
+            break;
+        }
+        case 3: {
+            sbit->type = PNG_sBIT_RGB_OR_INDEXED;
+            sbit->red = chunk->data[0];
+            sbit->green = chunk->data[1];
+            sbit->blue = chunk->data[2];
+            break;
+        }
+        case 4: {
+            sbit->type = PNG_sBIT_RGBALPHA;
+            sbit->red = chunk->data[0];
+            sbit->green = chunk->data[1];
+            sbit->blue = chunk->data[2];
+            sbit->alpha = chunk->data[3];
+            break;
+        }
+    }
+
+    return 0;
+}
+
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time) {
     if (chunk == NULL || strcmp(chunk->type, "tIME") != 0 || chunk->length != 7) {
         return 1;
@@ -1181,6 +1327,55 @@ static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct imag
     chunk->crc = MEDIA_CRC32(crc);
 }
 
+static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct image_png_chunk* chunk) {
+    strcpy(chunk->type, "sBIT");
+
+    switch (sbit->type) {
+        case PNG_sBIT_GREY:
+        case PNG_sBIT_GREYALPHA: {
+            chunk->length = sbit->type == PNG_sBIT_GREYALPHA ? 2 : 1;
+
+            if (chunk->data == NULL) {
+                chunk->data = malloc(sizeof(uint8_t) * chunk->length);
+            } else {
+                chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
+            }
+
+            chunk->data[0] = sbit->grey;
+            if (sbit->type == PNG_sBIT_GREYALPHA) {
+                chunk->data[1] = sbit->alpha;
+            }
+
+            break;
+        }
+        case PNG_sBIT_RGB_OR_INDEXED:
+        case PNG_sBIT_RGBALPHA: {
+            chunk->length = sbit->type == PNG_sBIT_RGBALPHA ? 4 : 3;
+
+            if (chunk->data == NULL) {
+                chunk->data = malloc(sizeof(uint8_t) * chunk->length);
+            } else {
+                chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
+            }
+
+            chunk->data[0] = sbit->red;
+            chunk->data[1] = sbit->green;
+            chunk->data[2] = sbit->blue;
+            if (sbit->type == PNG_sBIT_RGBALPHA) {
+                chunk->data[3] = sbit->alpha;
+            }
+
+            break;
+        }
+    }
+
+    uint32_t crc = MEDIA_CRC32_DEFAULT;
+    crc = media_update_crc32(crc, (uint8_t *) "sBIT", 4);
+    crc = media_update_crc32(crc, chunk->data, chunk->length);
+
+    chunk->crc = MEDIA_CRC32(crc);
+}
+
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk) {
     chunk->length = 7;
     strcpy(chunk->type, "tIME");
@@ -1365,6 +1560,18 @@ static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
     }
 }
 
+static inline enum image_png_sbit_type _png_color_to_sbit(uint8_t color) {
+    switch (color) {
+        case 0: return PNG_sBIT_GREY;
+        case 2:
+        case 3: return PNG_sBIT_RGB_OR_INDEXED;
+        case 4: return PNG_sBIT_GREYALPHA;
+        case 6: return PNG_sBIT_RGBALPHA;
+    }
+
+    return PNG_sBIT_GREY;
+}
+
 static inline int _png_check_chrm(struct image_png_chunk_cHRM* chrm) {
     return chrm->white_px != 0 || chrm->white_py != 0 || chrm->red_x != 0 || chrm->red_y != 0
         || chrm->green_x != 0 || chrm->green_y != 0 || chrm->blue_x != 0 || chrm->blue_y != 0;
@@ -1372,6 +1579,17 @@ static inline int _png_check_chrm(struct image_png_chunk_cHRM* chrm) {
 
 static inline int _png_check_iccp(struct image_png_chunk_iCCP* iccp) {
     return strcmp(iccp->name, "") != 0 || iccp->size > 0;
+}
+
+static inline int _png_check_sbit(struct image_png_chunk_sBIT* sbit) {
+    switch (sbit->type) {
+        case PNG_sBIT_GREY: return sbit->grey != 0;
+        case PNG_sBIT_RGB_OR_INDEXED: return sbit->red != 0 || sbit->green != 0 || sbit->blue != 0;
+        case PNG_sBIT_GREYALPHA: return sbit->grey != 0 || sbit->alpha != 0;
+        case PNG_sBIT_RGBALPHA: return sbit->red != 0 || sbit->green != 0 || sbit->blue != 0 || sbit->alpha != 0;
+    }
+
+    return 0;
 }
 
 static inline int _png_check_time(struct image_png_chunk_tIME* time) {
