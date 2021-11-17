@@ -529,6 +529,12 @@ struct image_png* image_png_copy(struct image_png* image) {
     return copy_image;
 }
 
+static inline void _png_addcapicity_tobytes(uint32_t* chunk_size, struct image_png_chunk** pchunks) {
+    *chunk_size += 1;
+    *pchunks = realloc(*pchunks, *chunk_size * sizeof(struct image_png_chunk));
+    memset(&(*pchunks)[*chunk_size - 1], 0, sizeof(struct image_png_chunk)); 
+}
+
 void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psize) {
     uint32_t size = 8;
     uint8_t* bytes = malloc(sizeof(uint8_t) * 8);
@@ -544,26 +550,18 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     _png_write_chunk_IHDR(&image->ihdr, &chunks[next_chunk++]);
 
     if (_png_check_chrm(&image->chrm)) {
-        chunk_size += 1;
-        chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
-        memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
-
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
         _png_write_chunk_cHRM(&image->chrm, &chunks[next_chunk++]);
     }
 
     uint8_t color = image->ihdr.color;
     int requiresPallete = color == 3 || ((color == 2 || color == 6) && image->plte.size > 0) ? 1 : 0;
     if (requiresPallete != 0) {
-        chunk_size += 1;
-        chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
-        memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
-
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
         _png_write_chunk_PLTE(&image->plte, &chunks[next_chunk++]);
 
         if (image->trns.size > 0) {
-            chunk_size += 1; 
-            chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
-            memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
+            _png_addcapicity_tobytes(&chunk_size, &chunks);
 
             enum image_png_trns_type trns_type = image->trns.type;
             _png_convert_chunk_tRNS(&image->trns, PNG_tRNS_8BITS);
@@ -573,10 +571,7 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     }
 
     if (_png_check_time(&image->time) != 0) {
-        chunk_size += 1;
-        chunks = realloc(chunks, chunk_size * sizeof(struct image_png_chunk));
-        memset(&chunks[chunk_size - 1], 0, sizeof(struct image_png_chunk));
-
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
         _png_write_chunk_tIME(&image->time, &chunks[next_chunk++]);
     }
 
