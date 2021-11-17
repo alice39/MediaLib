@@ -559,15 +559,15 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     if (requiresPallete != 0) {
         _png_addcapicity_tobytes(&chunk_size, &chunks);
         _png_write_chunk_PLTE(&image->plte, &chunks[next_chunk++]);
+    }
 
-        if (image->trns.size > 0) {
-            _png_addcapicity_tobytes(&chunk_size, &chunks);
+    if (image->trns.size > 0) {
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
 
-            enum image_png_trns_type trns_type = image->trns.type;
-            _png_convert_chunk_tRNS(&image->trns, PNG_tRNS_8BITS);
-            _png_write_chunk_tRNS(&image->trns, &chunks[next_chunk++]);
-            _png_convert_chunk_tRNS(&image->trns, trns_type);
-        }
+        enum image_png_trns_type trns_type = image->trns.type;
+        _png_convert_chunk_tRNS(&image->trns, PNG_tRNS_8BITS);
+        _png_write_chunk_tRNS(&image->trns, &chunks[next_chunk++]);
+        _png_convert_chunk_tRNS(&image->trns, trns_type);
     }
 
     if (_png_check_time(&image->time) != 0) {
