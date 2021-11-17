@@ -94,6 +94,10 @@ struct image_png_chunk_sBIT {
     uint8_t alpha;
 };
 
+struct image_png_chunk_sRGB {
+    uint8_t rendering;
+};
+
 struct image_png_chunk_tIME {
     uint16_t year;
     uint8_t month;
@@ -128,6 +132,8 @@ struct image_png {
     struct image_png_chunk_iCCP iccp;
     // there is no sbit if all is set up to 0 according to type
     struct image_png_chunk_sBIT sbit;
+    // there is no srgb if rendering is out of range between 0 and 3
+    struct image_png_chunk_sRGB srgb;
     // there is no time if all is set up to 0
     struct image_png_chunk_tIME time;
 
@@ -157,6 +163,7 @@ static int _png_read_chunk_cHRM(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_gAMA(struct image_png_chunk* chunk, struct image_png_chunk_gAMA* gama);
 static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_chunk_iCCP* iccp);
 static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_chunk_sBIT* sbit);
+static int _png_read_chunk_sRGB(struct image_png_chunk* chunk, struct image_png_chunk_sRGB* srgb);
 // return 0 if success, otherwise another number
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
@@ -170,6 +177,7 @@ static void _png_write_chunk_cHRM(struct image_png_chunk_cHRM* chrm, struct imag
 static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct image_png_chunk* chunk);
 static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct image_png_chunk* chunk);
 static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct image_png_chunk* chunk);
+static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct image_png_chunk* chunk);
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
@@ -238,6 +246,7 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     memset(&image->gama, 0, sizeof(struct image_png_chunk_gAMA));
     memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
     memset(&image->sbit, 0, sizeof(struct image_png_chunk_sBIT));
+    memset(&image->srgb, -1, sizeof(struct image_png_chunk_sRGB));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     image->sbit.type = _png_color_to_sbit(ihdr->color);
@@ -279,6 +288,7 @@ struct image_png* image_png_open(const char* path) {
     memset(&image->gama, 0, sizeof(struct image_png_chunk_gAMA));
     memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
     memset(&image->sbit, 0, sizeof(struct image_png_chunk_sBIT));
+    memset(&image->srgb, -1, sizeof(struct image_png_chunk_sRGB));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     struct image_png_chunk idat_chunk;
@@ -357,6 +367,12 @@ struct image_png* image_png_open(const char* path) {
             int sbit_ret = _png_read_chunk_sBIT(&chunk, &image->sbit);
 
             if (location == 0 || sbit_ret != 0) {
+                invalid = 1;
+            }
+        } else if (strcmp(chunk.type, "sRGB") == 0) {
+            int srgb_ret = _png_read_chunk_sRGB(&chunk, &image->srgb);
+
+            if (location == 0 || srgb_ret != 0) {
                 invalid = 1;
             }
         } else if (strcmp(chunk.type, "tIME") == 0) {
@@ -603,6 +619,14 @@ void image_png_set_sbit(struct image_png* image, struct image_color color) {
     }
 }
 
+void image_png_get_srgb(struct image_png* image, uint8_t* rendering) {
+    *rendering = image->srgb.rendering;
+}
+
+void image_png_set_srgb(struct image_png* image, uint8_t rendering) {
+    image->srgb.rendering = rendering; 
+}
+
 void image_png_get_palette(struct image_png* image, uint16_t* psize, struct image_color** ppalette) {
     uint16_t size = image->plte.size;
     struct image_color* pallete = malloc(sizeof(struct image_color) * 3 * size);
@@ -715,6 +739,11 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
     if (_png_check_sbit(&image->sbit)) {
         _png_addcapicity_tobytes(&chunk_size, &chunks);
         _png_write_chunk_sBIT(&image->sbit, &chunks[next_chunk++]);
+    }
+
+    if (image->srgb.rendering < 4) {
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
+        _png_write_chunk_sRGB(&image->srgb, &chunks[next_chunk++]);
     }
 
     uint8_t color = image->ihdr.color;
@@ -1167,6 +1196,24 @@ static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_sRGB(struct image_png_chunk* chunk, struct image_png_chunk_sRGB* srgb) {
+    if (chunk == NULL || strcmp(chunk->type, "sRGB") != 0 || chunk->length != 1) {
+        return 1;
+    }
+    
+    if (_png_check_crc32(chunk)) {
+        return 2;
+    }
+
+    if (srgb == NULL) {
+        return 0;
+    }
+
+    srgb->rendering = chunk->data[0];
+
+    return 0;
+}
+
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time) {
     if (chunk == NULL || strcmp(chunk->type, "tIME") != 0 || chunk->length != 7) {
         return 1;
@@ -1400,6 +1447,21 @@ static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct imag
             break;
         }
     }
+
+    _png_generate_crc32(chunk);
+}
+
+static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct image_png_chunk* chunk) {
+    chunk->length = 1;
+    strcpy(chunk->type, "sRGB");
+
+    if (chunk->data == NULL) {
+        chunk->data = malloc(sizeof(uint8_t));
+    } else {
+        chunk->data = realloc(chunk->data, sizeof(uint8_t)); 
+    }
+
+    chunk->data[0] = srgb->rendering;
 
     _png_generate_crc32(chunk);
 }

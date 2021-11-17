@@ -84,6 +84,9 @@ void image_png_get_gamma(struct image_png* image, uint32_t* gamma);
 void image_png_set_gamma(struct image_png* image, uint32_t gamma);
 void image_png_get_sbit(struct image_png* image, struct image_color* color);
 void image_png_set_sbit(struct image_png* image, struct image_color color);
+void image_png_get_srgb(struct image_png* image, uint8_t* rendering);
+// disabled if rendering if out of 0 and 3 range
+void image_png_set_srgb(struct image_png* image, uint8_t rendering);
 void image_png_get_palette(struct image_png* image, uint16_t* psize, struct image_color** ppalette);
 void image_png_set_palette(struct image_png* image, uint16_t size, struct image_color* pallete);
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color);
