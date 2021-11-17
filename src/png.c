@@ -70,6 +70,13 @@ struct image_png_chunk_gAMA {
     uint32_t gamma;
 };
 
+struct image_png_chunk_iCCP {
+    char name[80];
+    uint8_t compression;
+    uint32_t size;
+    uint8_t* data;
+};
+
 struct image_png_chunk_tIME {
     uint16_t year;
     uint8_t month;
@@ -100,6 +107,8 @@ struct image_png {
     struct image_png_chunk_cHRM chrm;
     // there is no gama if gamma value is 0
     struct image_png_chunk_gAMA gama;
+    // there is no iccp if all is set up to 0
+    struct image_png_chunk_iCCP iccp;
     // there is no time if all is set up to 0
     struct image_png_chunk_tIME time;
 
@@ -123,6 +132,7 @@ static int _png_read_chunk_tRNS(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_cHRM(struct image_png_chunk* chunk, struct image_png_chunk_cHRM* chrm);
 // return 0 if success, otherise another number
 static int _png_read_chunk_gAMA(struct image_png_chunk* chunk, struct image_png_chunk_gAMA* gama);
+static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_chunk_iCCP* iccp);
 // return 0 if success, otherwise another number
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
@@ -134,6 +144,7 @@ static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct imag
 static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct image_png_chunk* chunk);
 static void _png_write_chunk_cHRM(struct image_png_chunk_cHRM* chrm, struct image_png_chunk* chunk);
 static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct image_png_chunk* chunk);
+static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct image_png_chunk* chunk);
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
@@ -145,6 +156,7 @@ static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
                                     enum image_png_idat_type type);
 
 static inline int _png_check_chrm(struct image_png_chunk_cHRM* chrm);
+static inline int _png_check_iccp(struct image_png_chunk_iCCP* iccp);
 // return 0 if no time, otherwise any number if there is time
 static inline int _png_check_time(struct image_png_chunk_tIME* time);
 
@@ -196,6 +208,7 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
 
     memset(&image->chrm, 0, sizeof(struct image_png_chunk_cHRM));
     memset(&image->gama, 0, sizeof(struct image_png_chunk_gAMA));
+    memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     struct image_png_chunk_IDAT* idat = &image->idat;
@@ -233,6 +246,7 @@ struct image_png* image_png_open(const char* path) {
     image->idat.data = NULL;
     memset(&image->chrm, 0, sizeof(struct image_png_chunk_cHRM));
     memset(&image->gama, 0, sizeof(struct image_png_chunk_gAMA));
+    memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     struct image_png_chunk idat_chunk;
@@ -299,6 +313,12 @@ struct image_png* image_png_open(const char* path) {
             int gama_ret = _png_read_chunk_gAMA(&chunk, &image->gama);
 
             if (location == 0 || gama_ret != 0) {
+                invalid = 1;
+            }
+        } else if (strcmp(chunk.type, "iCCP") == 0) {
+            int iccp_ret = _png_read_chunk_iCCP(&chunk, &image->iccp);
+
+            if (location == 0 || iccp_ret != 0) {
                 invalid = 1;
             }
         } else if (strcmp(chunk.type, "tIME") == 0) {
@@ -583,6 +603,11 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
         _png_write_chunk_gAMA(&image->gama, &chunks[next_chunk++]);
     }
 
+    if (_png_check_iccp(&image->iccp)) {
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
+        _png_write_chunk_iCCP(&image->iccp, &chunks[next_chunk++]);
+    }
+
     uint8_t color = image->ihdr.color;
     int requiresPallete = color == 3 || ((color == 2 || color == 6) && image->plte.size > 0) ? 1 : 0;
     if (requiresPallete != 0) {
@@ -670,6 +695,7 @@ void image_png_close(struct image_png* image) {
         free(image->trns.data_16bits);
     }
 
+    free(image->iccp.data);
     free(image->plte.pallete);
     free(image->idat.data);
     free(image);
@@ -928,6 +954,25 @@ static int _png_read_chunk_gAMA(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_chunk_iCCP* iccp) {
+    if (chunk == NULL || strcmp(chunk->type, "iCCP") != 0) {
+        return 1;
+    }
+
+    if (iccp == NULL) {
+        return 0;
+    }
+
+    strncpy(iccp->name, (const char*) chunk->data, 80);
+    size_t name_length = strlen(iccp->name) + 1;
+    iccp->compression = chunk->data[name_length];
+    iccp->size = chunk->length - name_length - 1;
+    iccp->data = malloc(sizeof(uint8_t) * iccp->size);
+    memcpy(iccp->data, &chunk->data[name_length + 1], iccp->size);
+
+    return 0;
+}
+
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time) {
     if (chunk == NULL || strcmp(chunk->type, "tIME") != 0 || chunk->length != 7) {
         return 1;
@@ -1109,6 +1154,28 @@ static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct imag
 
     uint32_t crc = MEDIA_CRC32_DEFAULT;
     crc = media_update_crc32(crc, (uint8_t *) "gAMA", 4);
+    crc = media_update_crc32(crc, chunk->data, chunk->length);
+
+    chunk->crc = MEDIA_CRC32(crc);
+}
+
+static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct image_png_chunk* chunk) {
+    chunk->length = strlen(iccp->name) + iccp->size + 2;
+    strcpy(chunk->type, "iCCP");
+
+    if (chunk->data == NULL) {
+        chunk->data = malloc(sizeof(uint8_t) * chunk->length);
+    } else {
+        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
+    }
+
+    strncpy((char*) chunk->data, iccp->name, 80);
+    size_t name_length = strlen(iccp->name) + 1;
+    chunk->data[name_length] = iccp->compression;
+    memcpy(&chunk->data[name_length + 1], iccp->data, iccp->size);
+
+    uint32_t crc = MEDIA_CRC32_DEFAULT;
+    crc = media_update_crc32(crc, (uint8_t *) "iCCP", 4);
     crc = media_update_crc32(crc, chunk->data, chunk->length);
 
     chunk->crc = MEDIA_CRC32(crc);
@@ -1301,6 +1368,10 @@ static void _png_convert_chunk_IDAT(struct image_png_chunk_IHDR* ihdr,
 static inline int _png_check_chrm(struct image_png_chunk_cHRM* chrm) {
     return chrm->white_px != 0 || chrm->white_py != 0 || chrm->red_x != 0 || chrm->red_y != 0
         || chrm->green_x != 0 || chrm->green_y != 0 || chrm->blue_x != 0 || chrm->blue_y != 0;
+}
+
+static inline int _png_check_iccp(struct image_png_chunk_iCCP* iccp) {
+    return strcmp(iccp->name, "") != 0 || iccp->size > 0;
 }
 
 static inline int _png_check_time(struct image_png_chunk_tIME* time) {
