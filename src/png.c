@@ -141,6 +141,8 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
 static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk* dest);
 
 static inline void _png_generate_crc32(struct image_png_chunk* chunk);
+// return 0 if it's alright otherwise another number if corrupted
+static inline int _png_check_crc32(struct image_png_chunk* chunk);
 
 // return 0 if success, otherwise another number
 // ihdr can be null, just checking if chunk is an IHDR valid
@@ -956,17 +958,29 @@ static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk*
     dest->crc = src->crc;
 }
 
-static inline void _png_generate_crc32(struct image_png_chunk* chunk) {
+static inline uint32_t _png_get_chunk_crc32(struct image_png_chunk* chunk) {
     uint32_t crc = MEDIA_CRC32_DEFAULT;
     crc = media_update_crc32(crc, (uint8_t *) chunk->type, 4);
     crc = media_update_crc32(crc, chunk->data, chunk->length);
 
-    chunk->crc = MEDIA_CRC32(crc);
+    return MEDIA_CRC32(crc);
+}
+
+static inline void _png_generate_crc32(struct image_png_chunk* chunk) {
+    chunk->crc = _png_get_chunk_crc32(chunk); 
+}
+
+static inline int _png_check_crc32(struct image_png_chunk* chunk) {
+    return chunk->crc != _png_get_chunk_crc32(chunk);
 }
 
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr) {
     if (chunk == NULL || chunk->length != 13 || strcmp(chunk->type, "IHDR") != 0) {
         return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
     }
 
     struct image_png_chunk_IHDR def_ihdr;
@@ -984,6 +998,10 @@ static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_PLTE(struct image_png_chunk* chunk, struct image_png_chunk_PLTE* plte) {
     if (chunk == NULL || strcmp(chunk->type, "PLTE") != 0 || chunk->length % 3 != 0 || chunk->length / 3 > 256) {
         return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
     }
 
     if (plte == NULL) {
@@ -1009,6 +1027,10 @@ static int _png_read_chunk_PLTE(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_tRNS(struct image_png_chunk* chunk, struct image_png_chunk_tRNS* trns) {
     if (chunk == NULL || strcmp(chunk->type, "tRNS") != 0) {
         return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
     }
 
     if (trns == NULL) {
@@ -1037,6 +1059,10 @@ static int _png_read_chunk_cHRM(struct image_png_chunk* chunk, struct image_png_
         return 1;
     }
 
+    if (_png_check_crc32(chunk)) {
+        return 2;
+    }
+
     if (chrm == NULL) {
         return 0;
     }
@@ -1059,6 +1085,10 @@ static int _png_read_chunk_gAMA(struct image_png_chunk* chunk, struct image_png_
         return 1;
     }
 
+    if (_png_check_crc32(chunk)) {
+        return 2;
+    }
+
     if (gama == NULL) {
         return 0;
     }
@@ -1072,6 +1102,10 @@ static int _png_read_chunk_gAMA(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_chunk_iCCP* iccp) {
     if (chunk == NULL || strcmp(chunk->type, "iCCP") != 0) {
         return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
     }
 
     if (iccp == NULL) {
@@ -1091,6 +1125,10 @@ static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_chunk_sBIT* sbit) {
     if (chunk == NULL || strcmp(chunk->type, "sBIT") != 0) {
         return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
     }
 
     if (sbit == NULL) {
@@ -1133,6 +1171,10 @@ static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_
     if (chunk == NULL || strcmp(chunk->type, "tIME") != 0 || chunk->length != 7) {
         return 1;
     }
+    
+    if (_png_check_crc32(chunk)) {
+        return 2;
+    }
 
     if (time == NULL) {
         return 0;
@@ -1147,6 +1189,10 @@ static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_chunk_IDAT* idat) {
     if (chunk == NULL || strcmp(chunk->type, "IDAT") != 0) {
         return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
     }
 
     if (idat == NULL) {
