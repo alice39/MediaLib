@@ -140,6 +140,8 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
 
 static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk* dest);
 
+static inline void _png_generate_crc32(struct image_png_chunk* chunk);
+
 // return 0 if success, otherwise another number
 // ihdr can be null, just checking if chunk is an IHDR valid
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr);
@@ -954,6 +956,14 @@ static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk*
     dest->crc = src->crc;
 }
 
+static inline void _png_generate_crc32(struct image_png_chunk* chunk) {
+    uint32_t crc = MEDIA_CRC32_DEFAULT;
+    crc = media_update_crc32(crc, (uint8_t *) chunk->type, 4);
+    crc = media_update_crc32(crc, chunk->data, chunk->length);
+
+    chunk->crc = MEDIA_CRC32(crc);
+}
+
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr) {
     if (chunk == NULL || chunk->length != 13 || strcmp(chunk->type, "IHDR") != 0) {
         return 1;
@@ -1195,11 +1205,7 @@ static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct imag
     ihdr->width = convert_int_be(ihdr->width);
     ihdr->height = convert_int_be(ihdr->height);
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "IHDR", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct image_png_chunk* chunk) {
@@ -1221,11 +1227,7 @@ static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct imag
         chunk->data[i * 3 + 2] = color->rgba8.blue;
     }
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "PLTE", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct image_png_chunk* chunk) {
@@ -1240,11 +1242,7 @@ static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct imag
 
     memcpy(chunk->data, trns->data_8bits, sizeof(uint8_t) * chunk->length);
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "tRNS", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_cHRM(struct image_png_chunk_cHRM* chrm, struct image_png_chunk* chunk) {
@@ -1277,11 +1275,7 @@ static void _png_write_chunk_cHRM(struct image_png_chunk_cHRM* chrm, struct imag
     chrm->blue_x = convert_int_be(chrm->blue_x);
     chrm->blue_y = convert_int_be(chrm->blue_y);
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "cHRM", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct image_png_chunk* chunk) {
@@ -1298,11 +1292,7 @@ static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct imag
     memcpy(chunk->data, gama, sizeof(uint8_t) * 4);
     gama->gamma = convert_int_be(gama->gamma);
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "gAMA", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct image_png_chunk* chunk) {
@@ -1320,11 +1310,7 @@ static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct imag
     chunk->data[name_length] = iccp->compression;
     memcpy(&chunk->data[name_length + 1], iccp->data, iccp->size);
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "iCCP", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct image_png_chunk* chunk) {
@@ -1369,11 +1355,7 @@ static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct imag
         }
     }
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "sBIT", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk) {
@@ -1390,11 +1372,7 @@ static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct imag
     memcpy(chunk->data, time, sizeof(uint8_t) * 7);
     time->year = convert_short_be(time->year);
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "tIME", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk) {
@@ -1433,11 +1411,7 @@ static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct imag
 
     deflateEnd(&stream);
 
-    uint32_t crc = MEDIA_CRC32_DEFAULT;
-    crc = media_update_crc32(crc, (uint8_t *) "IDAT", 4);
-    crc = media_update_crc32(crc, chunk->data, chunk->length);
-
-    chunk->crc = MEDIA_CRC32(crc);
+    _png_generate_crc32(chunk);
 }
 
 static void _png_convert_chunk_tRNS(struct image_png_chunk_tRNS* trns,
