@@ -150,6 +150,8 @@ static inline void _png_generate_crc32(struct image_png_chunk* chunk);
 // return 0 if it's alright otherwise another number if corrupted
 static inline int _png_check_crc32(struct image_png_chunk* chunk);
 
+static inline void _png_populate_chunk(struct image_png_chunk* chunk, size_t bytes);
+
 // return 0 if success, otherwise another number
 // ihdr can be null, just checking if chunk is an IHDR valid
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr);
@@ -1003,6 +1005,14 @@ static inline int _png_check_crc32(struct image_png_chunk* chunk) {
     return chunk->crc != _png_get_chunk_crc32(chunk);
 }
 
+static inline void _png_populate_chunk(struct image_png_chunk* chunk, size_t bytes) {
+    if (chunk->data == NULL) {
+        chunk->data = malloc(bytes);
+    } else {
+        chunk->data = realloc(chunk->data, bytes);
+    }
+}
+
 static int _png_read_chunk_IHDR(struct image_png_chunk* chunk, struct image_png_chunk_IHDR* ihdr) {
     if (chunk == NULL || chunk->length != 13 || strcmp(chunk->type, "IHDR") != 0) {
         return 1;
@@ -1283,12 +1293,7 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
 static void _png_write_chunk_IHDR(struct image_png_chunk_IHDR* ihdr, struct image_png_chunk* chunk) {
     chunk->length = 13;
     strcpy(chunk->type, "IHDR");
-
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t) * 13);
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * 13);
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t) * 13);
 
     ihdr->width = convert_int_be(ihdr->width);
     ihdr->height = convert_int_be(ihdr->height);
@@ -1305,12 +1310,7 @@ static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct imag
     uint16_t size = plte->size > 256 ? 256 : plte->size;
     chunk->length = size * 3;
     strcpy(chunk->type, "PLTE");
-
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t) * chunk->length);
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
 
     for (uint16_t i = 0; i < size; i++) {
         struct image_color* color = &plte->pallete[i];
@@ -1326,12 +1326,7 @@ static void _png_write_chunk_PLTE(struct image_png_chunk_PLTE* plte, struct imag
 static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct image_png_chunk* chunk) {
     chunk->length = trns->size;
     strcpy(chunk->type, "tRNS");
-    
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t) * chunk->length);
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
 
     memcpy(chunk->data, trns->data_8bits, sizeof(uint8_t) * chunk->length);
 
@@ -1341,12 +1336,7 @@ static void _png_write_chunk_tRNS(struct image_png_chunk_tRNS* trns, struct imag
 static void _png_write_chunk_cHRM(struct image_png_chunk_cHRM* chrm, struct image_png_chunk* chunk) {
     chunk->length = 32;
     strcpy(chunk->type, "cHRM");
-
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t) * 32);
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * 32);
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t) * 32);
 
     chrm->white_px = convert_int_be(chrm->white_px);
     chrm->white_py = convert_int_be(chrm->white_py);
@@ -1374,12 +1364,7 @@ static void _png_write_chunk_cHRM(struct image_png_chunk_cHRM* chrm, struct imag
 static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct image_png_chunk* chunk) {
     chunk->length = 4;
     strcpy(chunk->type, "gAMA");
-
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t) * 4);
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * 4);
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t) * 4);
 
     gama->gamma = convert_int_be(gama->gamma);
     memcpy(chunk->data, gama, sizeof(uint8_t) * 4);
@@ -1391,12 +1376,7 @@ static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct imag
 static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct image_png_chunk* chunk) {
     chunk->length = strlen(iccp->name) + iccp->size + 2;
     strcpy(chunk->type, "iCCP");
-
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t) * chunk->length);
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
 
     strncpy((char*) chunk->data, iccp->name, 80);
     size_t name_length = strlen(iccp->name) + 1;
@@ -1413,12 +1393,7 @@ static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct imag
         case PNG_sBIT_GREY:
         case PNG_sBIT_GREYALPHA: {
             chunk->length = sbit->type == PNG_sBIT_GREYALPHA ? 2 : 1;
-
-            if (chunk->data == NULL) {
-                chunk->data = malloc(sizeof(uint8_t) * chunk->length);
-            } else {
-                chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
-            }
+            _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
 
             chunk->data[0] = sbit->grey;
             if (sbit->type == PNG_sBIT_GREYALPHA) {
@@ -1430,12 +1405,7 @@ static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct imag
         case PNG_sBIT_RGB_OR_INDEXED:
         case PNG_sBIT_RGBALPHA: {
             chunk->length = sbit->type == PNG_sBIT_RGBALPHA ? 4 : 3;
-
-            if (chunk->data == NULL) {
-                chunk->data = malloc(sizeof(uint8_t) * chunk->length);
-            } else {
-                chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
-            }
+            _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
 
             chunk->data[0] = sbit->red;
             chunk->data[1] = sbit->green;
@@ -1454,12 +1424,7 @@ static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct imag
 static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct image_png_chunk* chunk) {
     chunk->length = 1;
     strcpy(chunk->type, "sRGB");
-
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t));
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t)); 
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t));
 
     chunk->data[0] = srgb->rendering;
 
@@ -1469,12 +1434,7 @@ static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct imag
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk) {
     chunk->length = 7;
     strcpy(chunk->type, "tIME");
-
-    if (chunk->data == NULL) {
-        chunk->data = malloc(sizeof(uint8_t) * 7);
-    } else {
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * 7); 
-    }
+    _png_populate_chunk(chunk, sizeof(uint8_t) * 7);
 
     time->year = convert_short_be(time->year);
     memcpy(chunk->data, time, sizeof(uint8_t) * 7);
