@@ -98,6 +98,17 @@ struct image_png_chunk_sRGB {
     uint8_t rendering;
 };
 
+struct image_png_chunk_tEXt {
+    char keyword[80];
+    uint32_t size;
+    char* text;
+};
+
+struct image_png_tEXt_list {
+    uint32_t size;
+    struct image_png_chunk_tEXt* list;
+};
+
 struct image_png_chunk_tIME {
     uint16_t year;
     uint8_t month;
@@ -134,6 +145,8 @@ struct image_png {
     struct image_png_chunk_sBIT sbit;
     // there is no srgb if rendering is out of range between 0 and 3
     struct image_png_chunk_sRGB srgb;
+    // there is no text if size is 0
+    struct image_png_tEXt_list text_list;
     // there is no time if all is set up to 0
     struct image_png_chunk_tIME time;
 
@@ -166,6 +179,7 @@ static int _png_read_chunk_gAMA(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_chunk_iCCP* iccp);
 static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_chunk_sBIT* sbit);
 static int _png_read_chunk_sRGB(struct image_png_chunk* chunk, struct image_png_chunk_sRGB* srgb);
+static int _png_read_chunk_tEXt(struct image_png_chunk* chunk, struct image_png_chunk_tEXt* text);
 // return 0 if success, otherwise another number
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
@@ -180,6 +194,7 @@ static void _png_write_chunk_gAMA(struct image_png_chunk_gAMA* gama, struct imag
 static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct image_png_chunk* chunk);
 static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct image_png_chunk* chunk);
 static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct image_png_chunk* chunk);
+static void _png_write_chunk_tEXt(struct image_png_chunk_tEXt* text, struct image_png_chunk* chunk);
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
@@ -197,6 +212,17 @@ static inline int _png_check_iccp(struct image_png_chunk_iCCP* iccp);
 static inline int _png_check_sbit(struct image_png_chunk_sBIT* sbit);
 // return 0 if no time, otherwise any number if there is time
 static inline int _png_check_time(struct image_png_chunk_tIME* time);
+
+static void _png_add_text(struct image_png_tEXt_list* list,
+                          struct image_png_chunk_tEXt* text);
+
+static void _png_get_text(struct image_png_tEXt_list* list,
+                          const char* keyword,
+                          struct image_png_chunk_tEXt** out_text,
+                          uint32_t* index);
+
+static void _png_sub_text(struct image_png_tEXt_list* list,
+                          const char* keyword);
 
 // just if IDAT chunk is not used anymore
 static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat);
@@ -249,6 +275,7 @@ struct image_png* image_png_create(enum image_color_type type, uint32_t width, u
     memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
     memset(&image->sbit, 0, sizeof(struct image_png_chunk_sBIT));
     memset(&image->srgb, -1, sizeof(struct image_png_chunk_sRGB));
+    memset(&image->text_list, 0, sizeof(struct image_png_tEXt_list));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     image->sbit.type = _png_color_to_sbit(ihdr->color);
@@ -291,6 +318,7 @@ struct image_png* image_png_open(const char* path) {
     memset(&image->iccp, 0, sizeof(struct image_png_chunk_iCCP));
     memset(&image->sbit, 0, sizeof(struct image_png_chunk_sBIT));
     memset(&image->srgb, -1, sizeof(struct image_png_chunk_sRGB));
+    memset(&image->text_list, 0, sizeof(struct image_png_tEXt_list));
     memset(&image->time, 0, sizeof(struct image_png_chunk_tIME));
 
     struct image_png_chunk idat_chunk;
@@ -376,6 +404,15 @@ struct image_png* image_png_open(const char* path) {
 
             if (location == 0 || srgb_ret != 0) {
                 invalid = 1;
+            }
+        } else if (strcmp(chunk.type, "tEXt") == 0) {
+            struct image_png_chunk_tEXt text;
+            int text_ret = _png_read_chunk_tEXt(&chunk, &text);
+
+            if (location == 0 || text_ret != 0) {
+                invalid = 1;
+            } else {
+                _png_add_text(&image->text_list, &text);
             }
         } else if (strcmp(chunk.type, "tIME") == 0) {
             int time_ret = _png_read_chunk_tIME(&chunk, &image->time);
@@ -629,6 +666,67 @@ void image_png_set_srgb(struct image_png* image, uint8_t rendering) {
     image->srgb.rendering = rendering; 
 }
 
+void image_png_set_text(struct image_png* image, const char* keyword, const char* text) {
+    struct image_png_chunk_tEXt* text_chunk;
+    _png_get_text(&image->text_list, keyword, &text_chunk, NULL);
+
+    if (text == NULL) {
+        text = "";
+    }
+
+    if (text_chunk != NULL) {
+        text_chunk->size = strlen(text);
+        text_chunk->text = realloc(text_chunk->text, sizeof(char) * text_chunk->size);
+        memcpy(text_chunk->text, text, text_chunk->size);
+    } else {
+        struct image_png_chunk_tEXt text_stack;
+        strncpy(text_stack.keyword, keyword, 80);
+        // make sure about null terminator
+        text_stack.keyword[strlen(text_stack.keyword)] = '\0';
+
+        text_stack.size = strlen(text);
+        memcpy(text_stack.text, text, text_stack.size);
+
+        _png_add_text(&image->text_list, &text_stack);
+    }
+}
+
+void image_png_get_text(struct image_png* image, const char* keyword, char** out_text) {
+    struct image_png_chunk_tEXt* text;
+    _png_get_text(&image->text_list, keyword, &text, NULL);
+
+    if (text != NULL) {
+        char* copy = malloc(sizeof(char) * (text->size + 1));
+        memcpy(copy, text->text, text->size);
+        copy[text->size] = '\0';
+
+        *out_text = copy;
+    } else {
+        *out_text = NULL;
+    }
+}
+
+void image_png_get_keys(struct image_png* image, char*** out_keywords, uint32_t* size) {
+    char** keywords = malloc(sizeof(char*) * image->text_list.size);
+
+    for (uint32_t i = 0; i < image->text_list.size; i++) {
+        const char* keyword = image->text_list.list[i].keyword;
+        size_t keyword_length = strlen(keyword) + 1;
+
+        char* copy_keyword = malloc(sizeof(char) * keyword_length);
+        memcpy(copy_keyword, keyword, keyword_length);
+
+        keywords[i] = copy_keyword;
+    }
+
+    *out_keywords = keywords;
+    *size = image->text_list.size;
+}
+
+void image_png_del_text(struct image_png* image, const char* keyword) {
+    _png_sub_text(&image->text_list, keyword);
+}
+
 void image_png_get_palette(struct image_png* image, uint16_t* psize, struct image_color** ppalette) {
     uint16_t size = image->plte.size;
     struct image_color* pallete = malloc(sizeof(struct image_color) * 3 * size);
@@ -748,6 +846,11 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
         _png_write_chunk_sRGB(&image->srgb, &chunks[next_chunk++]);
     }
 
+    for (uint32_t i = 0; i < image->text_list.size; i++) {
+        _png_addcapicity_tobytes(&chunk_size, &chunks);
+        _png_write_chunk_tEXt(&image->text_list.list[i], &chunks[next_chunk++]);
+    }
+
     uint8_t color = image->ihdr.color;
     int requiresPallete = color == 3 || ((color == 2 || color == 6) && image->plte.size > 0) ? 1 : 0;
     if (requiresPallete != 0) {
@@ -834,6 +937,11 @@ void image_png_close(struct image_png* image) {
     } else if (image->trns.type == PNG_tRNS_16BITS) {
         free(image->trns.data_16bits);
     }
+
+    for (size_t i = 0; i < image->text_list.size; i++) {
+        free(image->text_list.list[i].text);
+    }
+    free(image->text_list.list);
 
     free(image->iccp.data);
     free(image->plte.pallete);
@@ -1224,6 +1332,34 @@ static int _png_read_chunk_sRGB(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_tEXt(struct image_png_chunk* chunk, struct image_png_chunk_tEXt* text) {
+    if (chunk == NULL || strcmp(chunk->type, "tEXt") != 0) {
+        return 1;
+    }
+    
+    if (_png_check_crc32(chunk)) {
+        return 2;
+    }
+
+    if (text == NULL) {
+        return 0;
+    }
+
+    strncpy(text->keyword, (char*) chunk->data, 80);
+    text->size = chunk->length - strlen(text->keyword);
+
+    if (text->text == NULL) {
+        text->text = malloc(sizeof(char) * text->size);
+    } else {
+        text->text = realloc(text->text, sizeof(char) * text->size); 
+    }
+
+    memcpy(text->text, &chunk->data[chunk->length - text->size + 1], text->size - 1);
+    text->text[text->size - 1] = '\0';
+
+    return 0;
+}
+
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time) {
     if (chunk == NULL || strcmp(chunk->type, "tIME") != 0 || chunk->length != 7) {
         return 1;
@@ -1427,6 +1563,17 @@ static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct imag
     _png_populate_chunk(chunk, sizeof(uint8_t));
 
     chunk->data[0] = srgb->rendering;
+
+    _png_generate_crc32(chunk);
+}
+
+static void _png_write_chunk_tEXt(struct image_png_chunk_tEXt* text, struct image_png_chunk* chunk) {
+    chunk->length = strlen(text->keyword) + text->size;
+    strcpy(chunk->type, "tEXt");
+    _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
+
+    memcpy(chunk->data, text->keyword, chunk->length - text->size + 1);
+    memcpy(&chunk->data[chunk->length - text->size + 1], text->text, text->size - 1);
 
     _png_generate_crc32(chunk);
 }
@@ -1636,6 +1783,68 @@ static inline int _png_check_sbit(struct image_png_chunk_sBIT* sbit) {
 
 static inline int _png_check_time(struct image_png_chunk_tIME* time) {
     return time->year != 0 || time->month != 0 || time->day != 0 || time->hour != 0 || time->minute != 0 || time->second != 0;
+}
+
+static void _png_add_text(struct image_png_tEXt_list* list,
+                                 struct image_png_chunk_tEXt* text) {
+    uint32_t index = list->size;
+    list->size++;
+
+    if (list->size == 1) {
+        list->list = malloc(sizeof(struct image_png_chunk_tEXt));
+    } else {
+        list->list = realloc(list->list, sizeof(struct image_png_chunk_tEXt) * list->size);
+    }
+
+    memcpy(&list->list[index], text, sizeof(struct image_png_chunk_tEXt));
+}
+
+static void _png_get_text(struct image_png_tEXt_list* list,
+                                 const char* keyword,
+                                 struct image_png_chunk_tEXt** out_text,
+                                 uint32_t* index) {
+    for (uint32_t i = 0; i < list->size; i++) {
+        struct image_png_chunk_tEXt* text = &list->list[i];
+        if (strcmp(text->keyword, keyword) != 0) {
+            continue;
+        }
+
+        *out_text = text;
+        if (index != NULL) {
+            *index = i;
+        }
+        
+        return;
+    }
+
+    *out_text = NULL;
+    if (index != NULL) {
+        *index = 0;
+    }
+}
+
+static void _png_sub_text(struct image_png_tEXt_list* list,
+                                 const char* keyword) {
+    struct image_png_chunk_tEXt* text;
+    uint32_t index;
+
+    _png_get_text(list, keyword, &text, &index);
+
+    // not found, ignore it
+    if (text == NULL) {
+        return;
+    }
+
+    list->size--;
+
+    if (list->size == 0) {
+        free(list->list);
+        list->list = NULL; 
+    } else if (index == list->size) {
+        list->list = realloc(list->list, sizeof(struct image_png_chunk_tEXt) * list->size);
+    } else {
+        memmove(&list->list[index], &list->list[index + 1], sizeof(struct image_png_chunk_tEXt) * (list->size - index));
+    }
 }
 
 static inline void _png_free_chunk_IDAT(struct image_png_chunk_IDAT* idat) {

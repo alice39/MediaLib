@@ -87,6 +87,12 @@ void image_png_set_sbit(struct image_png* image, struct image_color color);
 void image_png_get_srgb(struct image_png* image, uint8_t* rendering);
 // disabled if rendering if out of 0 and 3 range
 void image_png_set_srgb(struct image_png* image, uint8_t rendering);
+void image_png_set_text(struct image_png* image, const char* keyword, const char* text);
+// out_text should be freed
+void image_png_get_text(struct image_png* image, const char* keyword, char** out_text);
+// out_keywords should be freed including char*
+void image_png_get_keys(struct image_png* image, char*** out_keywords, uint32_t* size);
+void image_png_del_text(struct image_png* image, const char* keyword);
 void image_png_get_palette(struct image_png* image, uint16_t* psize, struct image_color** ppalette);
 void image_png_set_palette(struct image_png* image, uint16_t size, struct image_color* pallete);
 void image_png_get_pixel(struct image_png* image, uint32_t x, uint32_t y, struct image_color* color);
