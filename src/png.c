@@ -1490,7 +1490,7 @@ static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct imag
     strcpy(chunk->type, "iCCP");
     _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
 
-    strncpy((char*) chunk->data, iccp->name, 80);
+    strncpy((char*) chunk->data, iccp->name, chunk->length - iccp->size - 1);
     size_t name_length = strlen(iccp->name) + 1;
     chunk->data[name_length] = iccp->compression;
     memcpy(&chunk->data[name_length + 1], iccp->data, iccp->size);
