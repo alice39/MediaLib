@@ -125,7 +125,7 @@ enum image_png_idat_type {
 
 struct image_png_chunk_IDAT {
     enum image_png_idat_type type;
-    uint32_t size;
+    size_t size;
     uint8_t* data;
 };
 
@@ -1393,35 +1393,7 @@ static int _png_read_chunk_IDAT(struct image_png_chunk* chunk, struct image_png_
     }
 
     idat->type = PNG_IDAT_SCANLINES;
-    idat->size = 0;
-    idat->data = malloc(0);
-
-    z_stream stream;
-    memset(&stream, 0, sizeof(z_stream));
-
-    inflateInit(&stream);
-
-    stream.avail_in = chunk->length;
-    stream.next_in = chunk->data;
-
-    uint32_t times = 1;
-    do {
-        idat->size = 1024 * times;
-        idat->data = realloc(idat->data, sizeof(uint8_t) * idat->size);
-
-        stream.avail_out = 1024;
-        stream.next_out = idat->data + 1024 * (times - 1);
-
-        times++;
-
-        inflate(&stream, Z_FINISH);
-    } while (stream.avail_out == 0);
-
-    // re-adjust
-    idat->size -= stream.avail_out;
-    idat->data = realloc(idat->data, sizeof(uint8_t) * idat->size);
-
-    inflateEnd(&stream);
+    media_zlib_inflate(chunk->data, chunk->length, &idat->data, &idat->size);
 
     return 0;
 }
@@ -1591,40 +1563,15 @@ static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct imag
 }
 
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk) {
-    chunk->length = 0;
     strcpy(chunk->type, "IDAT");
 
-    if (chunk->data == NULL) {
-        chunk->data = malloc(0);
+    if (chunk->data != NULL) {
+        free(chunk->data);
     }
 
-    z_stream stream;
-    memset(&stream, 0, sizeof(z_stream));
-
-    deflateInit(&stream, 9);
-
-    stream.avail_in = idat->size;
-    stream.next_in = idat->data;
-
-    // fetch until available output size be 0
-    uint32_t times = 1;
-    do {
-        chunk->length = 1024 * times;
-        chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
-
-        stream.avail_out = 1024;
-        stream.next_out = chunk->data + 1024 * (times - 1);
-
-        times++;
-
-        deflate(&stream, Z_FINISH);
-    } while (stream.avail_out == 0);
-
-    // re-adjust
-    chunk->length -= stream.avail_out;
-    chunk->data = realloc(chunk->data, sizeof(uint8_t) * chunk->length);
-
-    deflateEnd(&stream);
+    size_t length;
+    media_zlib_deflate(idat->data, idat->size, &chunk->data, &length, Z_BEST_COMPRESSION);
+    chunk->length = length;
 
     _png_generate_crc32(chunk);
 }

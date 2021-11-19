@@ -1,6 +1,9 @@
 #include "utils.h"
+#include "../zlib/zlib.h"
 
 #include <stdio.h>
+#include <string.h>
+#include <malloc.h>
 
 static uint32_t CRCTable[256];
 static uint8_t crc_table_initialized;
@@ -62,4 +65,83 @@ enum media_endian media_actual_endian() {
     }
 
     return endian;
+}
+
+void media_zlib_inflate(uint8_t* compressed, size_t compressed_size,
+                        uint8_t** out_data, size_t* out_size) {
+    z_stream stream;
+    memset(&stream, 0, sizeof(z_stream));
+
+    inflateInit(&stream);
+
+    stream.next_in = compressed;
+    stream.avail_in = compressed_size;
+
+    uint8_t* data = malloc(0);
+    size_t size = 0;
+
+    size_t times = 1;
+    do {
+        size = 1024 * times;
+        data = realloc(data, sizeof(uint8_t) * size);
+
+        stream.avail_out = 1024;
+        stream.next_out = data + 1024 * (times - 1);
+
+        times++;
+
+        inflate(&stream, Z_FINISH);
+    } while (stream.avail_out == 0);
+
+    // re-adjust
+    size -= stream.avail_out;
+    data = realloc(data, sizeof(uint8_t) * size);
+
+    inflateEnd(&stream);
+
+    *out_data = data;
+    *out_size = size;
+}
+
+void media_zlib_deflate(uint8_t* data, size_t data_size,
+                        uint8_t** out_compressed, size_t* out_size,
+                        int compression_level) {
+    if (compression_level < Z_DEFAULT_COMPRESSION) {
+        compression_level = Z_DEFAULT_COMPRESSION;
+    } else if (compression_level > Z_BEST_COMPRESSION) {
+        compression_level = Z_BEST_COMPRESSION;
+    }
+
+    z_stream stream;
+    memset(&stream, 0, sizeof(z_stream));
+
+    deflateInit(&stream, compression_level);
+
+    stream.next_in = data;
+    stream.avail_in = data_size;
+
+    uint8_t* compressed = malloc(0);
+    size_t size = 0;
+
+    size_t times = 1;
+    do {
+        size = 1024 * times;
+        compressed = realloc(compressed, sizeof(uint8_t) * size);
+
+        stream.avail_out = 1024;
+        stream.next_out = compressed + 1024 * (times - 1);
+
+        times++;
+
+        deflate(&stream, Z_FINISH);
+    } while (stream.avail_out == 0);
+
+    // re-adjust
+    size -= stream.avail_out;
+    compressed = realloc(compressed, sizeof(uint8_t) * size);
+
+    deflateEnd(&stream);
+
+    *out_compressed = compressed;
+    *out_size = size;
 }
