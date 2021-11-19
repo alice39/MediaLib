@@ -1092,7 +1092,11 @@ static void _png_convert_color(struct image_color* color, enum image_color_type 
 static void _png_copy_chunk(struct image_png_chunk* src, struct image_png_chunk* dest) {
     dest->length = src->length;
     strcpy(dest->type, src->type);
-    dest->data = malloc(sizeof(uint8_t) * src->length);
+    if (dest->data == NULL) {
+        dest->data = malloc(sizeof(uint8_t) * src->length);
+    } else {
+        dest->data = realloc(dest->data, sizeof(uint8_t) * src->length); 
+    }
     memcpy(dest->data, src->data, sizeof(uint8_t) * src->length);
     dest->crc = src->crc;
 }
