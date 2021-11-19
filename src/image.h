@@ -87,9 +87,10 @@ void image_png_set_sbit(struct image_png* image, struct image_color color);
 void image_png_get_srgb(struct image_png* image, uint8_t* rendering);
 // disabled if rendering if out of 0 and 3 range
 void image_png_set_srgb(struct image_png* image, uint8_t rendering);
-void image_png_set_text(struct image_png* image, const char* keyword, const char* text);
+// compress -1 if disabled, compress -2 if won't change
+void image_png_set_text(struct image_png* image, const char* keyword, const char* text, int16_t compress);
 // out_text should be freed
-void image_png_get_text(struct image_png* image, const char* keyword, char** out_text);
+void image_png_get_text(struct image_png* image, const char* keyword, char** out_text, int16_t* out_compress);
 // out_keywords should be freed including char*
 void image_png_get_keys(struct image_png* image, char*** out_keywords, uint32_t* size);
 void image_png_del_text(struct image_png* image, const char* keyword);

@@ -98,9 +98,12 @@ struct image_png_chunk_sRGB {
     uint8_t rendering;
 };
 
+// also it behaves as a zTXt chunk
 struct image_png_chunk_tEXt {
     char keyword[80];
-    uint32_t size;
+    // -1 if there is no compression
+    int16_t compression;
+    size_t size;
     char* text;
 };
 
@@ -180,6 +183,7 @@ static int _png_read_chunk_iCCP(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_chunk_sBIT* sbit);
 static int _png_read_chunk_sRGB(struct image_png_chunk* chunk, struct image_png_chunk_sRGB* srgb);
 static int _png_read_chunk_tEXt(struct image_png_chunk* chunk, struct image_png_chunk_tEXt* text);
+static int _png_read_chunk_zTXt(struct image_png_chunk* chunk, struct image_png_chunk_tEXt* zext);
 // return 0 if success, otherwise another number
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
@@ -195,6 +199,7 @@ static void _png_write_chunk_iCCP(struct image_png_chunk_iCCP* iccp, struct imag
 static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct image_png_chunk* chunk);
 static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct image_png_chunk* chunk);
 static void _png_write_chunk_tEXt(struct image_png_chunk_tEXt* text, struct image_png_chunk* chunk);
+static void _png_write_chunk_zTXt(struct image_png_chunk_tEXt* zext, struct image_png_chunk* chunk);
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
@@ -414,6 +419,15 @@ struct image_png* image_png_open(const char* path) {
             } else {
                 _png_add_text(&image->text_list, &text);
             }
+        } else if (strcmp(chunk.type, "zTXt") == 0) {
+            struct image_png_chunk_tEXt zext;
+            int zext_ret = _png_read_chunk_zTXt(&chunk, &zext);
+
+            if (location == 0 || zext_ret != 0) {
+                invalid = 1;
+            } else {
+                _png_add_text(&image->text_list, &zext);
+            }
         } else if (strcmp(chunk.type, "tIME") == 0) {
             int time_ret = _png_read_chunk_tIME(&chunk, &image->time);
 
@@ -455,6 +469,8 @@ struct image_png* image_png_open(const char* path) {
 
         _png_read_chunk_IDAT(&idat_chunk, &image->idat);
         _png_convert_chunk_IDAT(&image->ihdr, &image->idat, PNG_IDAT_PIXELS);
+
+        free(idat_chunk.data);
     }
 
     fclose(file);
@@ -666,23 +682,31 @@ void image_png_set_srgb(struct image_png* image, uint8_t rendering) {
     image->srgb.rendering = rendering; 
 }
 
-void image_png_set_text(struct image_png* image, const char* keyword, const char* text) {
+void image_png_set_text(struct image_png* image, const char* keyword, const char* text, int16_t compress) {
     struct image_png_chunk_tEXt* text_chunk;
     _png_get_text(&image->text_list, keyword, &text_chunk, NULL);
 
-    if (text == NULL) {
-        text = "";
-    }
-
     if (text_chunk != NULL) {
-        text_chunk->size = strlen(text);
-        text_chunk->text = realloc(text_chunk->text, sizeof(char) * text_chunk->size);
-        memcpy(text_chunk->text, text, text_chunk->size);
+        if (compress != -2) {
+            text_chunk->compression = compress;
+        }
+
+        if (text != NULL) {
+            text_chunk->size = strlen(text);
+            text_chunk->text = realloc(text_chunk->text, sizeof(char) * text_chunk->size);
+            memcpy(text_chunk->text, text, text_chunk->size);
+        }
     } else {
         struct image_png_chunk_tEXt text_stack;
         strncpy(text_stack.keyword, keyword, 80);
         // make sure about null terminator
         text_stack.keyword[strlen(text_stack.keyword)] = '\0';
+
+        text_stack.compression = compress != -2 ? compress : -1;
+
+        if (text == NULL) {
+            text = "";
+        }
 
         text_stack.size = strlen(text);
         memcpy(text_stack.text, text, text_stack.size);
@@ -691,7 +715,7 @@ void image_png_set_text(struct image_png* image, const char* keyword, const char
     }
 }
 
-void image_png_get_text(struct image_png* image, const char* keyword, char** out_text) {
+void image_png_get_text(struct image_png* image, const char* keyword, char** out_text, int16_t* out_compress) {
     struct image_png_chunk_tEXt* text;
     _png_get_text(&image->text_list, keyword, &text, NULL);
 
@@ -701,8 +725,15 @@ void image_png_get_text(struct image_png* image, const char* keyword, char** out
         copy[text->size] = '\0';
 
         *out_text = copy;
+
+        if (out_compress != NULL) {
+            *out_compress = text->compression;
+        }
     } else {
         *out_text = NULL;
+        if (out_compress != NULL) {
+            *out_compress = -2;
+        }
     }
 }
 
@@ -848,7 +879,13 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
 
     for (uint32_t i = 0; i < image->text_list.size; i++) {
         _png_addcapicity_tobytes(&chunk_size, &chunks);
-        _png_write_chunk_tEXt(&image->text_list.list[i], &chunks[next_chunk++]);
+
+        struct image_png_chunk_tEXt* text = &image->text_list.list[i];
+        if (text->compression == -1) {
+            _png_write_chunk_tEXt(text, &chunks[next_chunk++]);
+        } else {
+            _png_write_chunk_zTXt(text, &chunks[next_chunk++]);
+        }
     }
 
     uint8_t color = image->ihdr.color;
@@ -1349,6 +1386,8 @@ static int _png_read_chunk_tEXt(struct image_png_chunk* chunk, struct image_png_
         return 0;
     }
 
+    text->compression = -1; 
+
     strncpy(text->keyword, (char*) chunk->data, 80);
     text->size = chunk->length - strlen(text->keyword);
 
@@ -1360,6 +1399,29 @@ static int _png_read_chunk_tEXt(struct image_png_chunk* chunk, struct image_png_
 
     memcpy(text->text, &chunk->data[chunk->length - text->size + 1], text->size - 1);
     text->text[text->size - 1] = '\0';
+
+    return 0;
+}
+
+static int _png_read_chunk_zTXt(struct image_png_chunk* chunk, struct image_png_chunk_tEXt* zext) {
+    if (chunk == NULL || strcmp(chunk->type, "zTXt") != 0) {
+        return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
+    }
+
+    if (zext == NULL) {
+        return 0;
+    }
+
+    strncpy(zext->keyword, (char*) chunk->data, 80);
+    size_t keyword_length = strlen(zext->keyword) + 1;
+    zext->compression = chunk->data[keyword_length];
+
+    size_t compressed_size = chunk->length - keyword_length - 1;
+    media_zlib_inflate(chunk->data + keyword_length + 1, compressed_size, (uint8_t**) &zext->text, &zext->size);
 
     return 0;
 }
@@ -1550,6 +1612,28 @@ static void _png_write_chunk_tEXt(struct image_png_chunk_tEXt* text, struct imag
 
     memcpy(chunk->data, text->keyword, chunk->length - text->size + 1);
     memcpy(&chunk->data[chunk->length - text->size + 1], text->text, text->size - 1);
+
+    _png_generate_crc32(chunk);
+}
+
+static void _png_write_chunk_zTXt(struct image_png_chunk_tEXt* zext, struct image_png_chunk* chunk) {
+    chunk->length = strlen(zext->keyword) + 2;
+    strcpy(chunk->type, "zTXt");
+    _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
+
+    strncpy((char*) chunk->data, zext->keyword, chunk->length - 1);
+    size_t keyword_length = chunk->length - 1;
+    chunk->data[keyword_length] = zext->compression;
+
+    uint8_t* compressed;
+    size_t compressed_size;
+    media_zlib_deflate((uint8_t*) zext->text, zext->size, &compressed, &compressed_size, Z_BEST_COMPRESSION);
+
+    chunk->length += compressed_size;
+    _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
+    memcpy(&chunk->data[keyword_length + 1], compressed, compressed_size);
+    
+    free(compressed);
 
     _png_generate_crc32(chunk);
 }
