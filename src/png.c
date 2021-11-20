@@ -823,6 +823,48 @@ struct image_png* image_png_copy(struct image_png* image) {
         copy_image->plte.pallete = malloc(sizeof(struct image_color) * copy_image->plte.size);
         memcpy(copy_image->plte.pallete, image->plte.pallete, sizeof(struct image_color) * copy_image->plte.size);
 
+        copy_image->trns.type = image->trns.type;
+        copy_image->trns.size = image->trns.size;
+        switch (copy_image->trns.type) {
+            case PNG_tRNS_8BITS: {
+                copy_image->trns.data_8bits = malloc(sizeof(uint8_t) * copy_image->trns.size);
+                memcpy(copy_image->trns.data_8bits, image->trns.data_8bits, sizeof(uint8_t) * copy_image->trns.size);
+                break;
+            }
+            case PNG_tRNS_16BITS: {
+                copy_image->trns.data_16bits = malloc(sizeof(uint16_t) * copy_image->trns.size);
+                memcpy(copy_image->trns.data_16bits, image->trns.data_16bits, sizeof(uint16_t) * copy_image->trns.size);
+                break;
+            }
+        }
+
+        memcpy(&copy_image->chrm, &image->chrm, sizeof(struct image_png_chunk_cHRM));
+        memcpy(&copy_image->gama, &image->gama, sizeof(struct image_png_chunk_gAMA));
+
+        strncpy(copy_image->iccp.name, image->iccp.name, 80);
+        copy_image->iccp.compression = image->iccp.compression;
+        copy_image->iccp.size = image->iccp.size;
+        copy_image->iccp.data = malloc(sizeof(uint8_t) * copy_image->iccp.size);
+        memcpy(copy_image->iccp.data, image->iccp.data, sizeof(uint8_t) * copy_image->iccp.size);
+
+        memcpy(&copy_image->sbit, &image->sbit, sizeof(struct image_png_chunk_sBIT));
+        memcpy(&copy_image->srgb, &image->srgb, sizeof(struct image_png_chunk_sRGB));
+
+        copy_image->text_list.size = image->text_list.size;
+        copy_image->text_list.list = malloc(sizeof(struct image_png_chunk_tEXt) * copy_image->text_list.size);
+        for (uint32_t i = 0; i < copy_image->text_list.size; i++) {
+            struct image_png_chunk_tEXt* text = &image->text_list.list[i];
+            struct image_png_chunk_tEXt* copy_text = &copy_image->text_list.list[i];
+
+            strncpy(copy_text->keyword, text->keyword, 80);
+            copy_text->compression = text->compression;
+            copy_text->size = text->size;
+            copy_text->text = malloc(sizeof(char) * copy_text->size);
+            memcpy(copy_text->text, text->text, copy_text->size);
+        }
+
+        memcpy(&copy_image->time, &image->time, sizeof(struct image_png_chunk_tIME));
+
         copy_image->idat.type = image->idat.type;
         copy_image->idat.size = image->idat.size;
         copy_image->idat.data = malloc(sizeof(uint8_t) * copy_image->idat.size);
