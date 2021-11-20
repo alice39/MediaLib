@@ -261,3 +261,96 @@ media::ImagePNG& media::ImagePNG::operator=(const ImagePNG& image) {
 
     return *this;
 }
+
+image_color media::generate_color16(uint16_t red, uint16_t green, uint16_t blue, uint16_t alpha) {
+    image_color color{};
+
+    color.type = static_cast<image_color_type>(static_cast<int>(IMAGE_RGBA16_COLOR) | IMAGE_ALPHA_BIT);
+    color.rgba16.red = red;
+    color.rgba16.green = green;
+    color.rgba16.blue = blue;
+    color.rgba16.alpha = alpha;
+
+    return color;
+}
+
+image_color media::generate_color16(uint16_t red, uint16_t green, uint16_t blue) {
+    image_color color{};
+
+    color.type = IMAGE_RGBA16_COLOR;
+    color.rgba16.red = red;
+    color.rgba16.green = green;
+    color.rgba16.blue = blue;
+
+    return color;
+}
+
+image_color media::generate_color16(uint16_t grey, uint16_t alpha) {
+    image_color color{};
+
+    color.type = static_cast<image_color_type>(static_cast<int>(IMAGE_GRAY16_COLOR) | IMAGE_ALPHA_BIT);
+    color.ga16.gray = grey;
+    color.ga16.alpha = alpha;
+
+    return color;
+}
+
+image_color media::generate_color16(uint16_t grey) {
+    image_color color{};
+
+    color.type = IMAGE_GRAY16_COLOR;
+    color.ga16.gray = grey;
+
+    return color;
+}
+
+image_color media::generate_color8(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) {
+    image_color color{};
+
+    color.type = static_cast<image_color_type>(static_cast<int>(IMAGE_RGBA8_COLOR) | IMAGE_ALPHA_BIT);
+    color.rgba8.red = red;
+    color.rgba8.green = green;
+    color.rgba8.blue = blue;
+    color.rgba8.alpha = alpha;
+
+    return color;
+}
+
+image_color media::generate_color8(uint8_t red, uint8_t green, uint8_t blue) {
+    image_color color{};
+
+    color.type = IMAGE_RGBA8_COLOR;
+    color.rgba8.red = red;
+    color.rgba8.green = green;
+    color.rgba8.blue = blue;
+
+    return color;
+}
+
+image_color media::generate_color8(uint8_t grey, uint8_t alpha) {
+    image_color color{};
+
+    color.type = static_cast<image_color_type>(static_cast<int>(IMAGE_GRAY8_COLOR) | IMAGE_ALPHA_BIT);
+    color.ga8.gray = grey;
+    color.ga8.alpha = alpha;
+
+    return color;
+}
+
+image_color media::generate_color8(uint8_t grey) {
+    image_color color{};
+
+    color.type = IMAGE_GRAY8_COLOR;
+    color.ga8.gray = grey;
+
+    return color;
+}
+
+image_color media::generate_colori(uint8_t index) {
+    image_color color{};
+
+    color.type = IMAGE_INDEXED_COLOR;
+    color.indexed = index;
+
+    return color;
+}

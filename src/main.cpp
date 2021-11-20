@@ -5,14 +5,7 @@ void test_empty_sample() {
     printf("Creating empty PNG C++\n");
 
     media::ImagePNG image(IMAGE_RGBA8_COLOR, 2, 2); 
-
-    image_color color;
-    color.rgba8.red = 0xFF;
-    color.rgba8.green = 0x01;
-    color.rgba8.blue = 0x01;
-    color.rgba8.alpha = 0xFF;
-
-    image.setPixel(0, 0, color);
+    image.setPixel(0, 0, media::generate_color8(0xFF, 0x01, 0x01, 0xFF));
 
     image.save("empty_image_cpp.png");
 }

@@ -58,6 +58,17 @@ namespace media {
         ImagePNG& operator=(const ImagePNG& image);
     };
 
+    image_color generate_color16(uint16_t red, uint16_t green, uint16_t blue, uint16_t alpha);
+    image_color generate_color16(uint16_t red, uint16_t green, uint16_t blue);
+    image_color generate_color16(uint16_t grey, uint16_t alpha);
+    image_color generate_color16(uint16_t grey);
+
+    image_color generate_color8(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha);
+    image_color generate_color8(uint8_t red, uint8_t green, uint8_t blue);
+    image_color generate_color8(uint8_t grey, uint8_t alpha);
+    image_color generate_color8(uint8_t grey);
+
+    image_color generate_colori(uint8_t index);
 };
 
 #endif // IMAGECPP_GUARD_HEADER
