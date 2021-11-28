@@ -103,7 +103,6 @@ struct image_png_chunk_tEXt {
     char keyword[80];
     // -1 if there is no compression
     int16_t compression;
-    size_t size;
     char* text;
 };
 
@@ -692,9 +691,9 @@ void image_png_set_text(struct image_png* image, const char* keyword, const char
         }
 
         if (text != NULL) {
-            text_chunk->size = strlen(text);
-            text_chunk->text = realloc(text_chunk->text, sizeof(char) * text_chunk->size);
-            memcpy(text_chunk->text, text, text_chunk->size);
+            size_t size = strlen(text) + 1;
+            text_chunk->text = realloc(text_chunk->text, sizeof(char) * size);
+            memcpy(text_chunk->text, text, size);
         }
     } else {
         struct image_png_chunk_tEXt text_stack;
@@ -708,8 +707,9 @@ void image_png_set_text(struct image_png* image, const char* keyword, const char
             text = "";
         }
 
-        text_stack.size = strlen(text);
-        memcpy(text_stack.text, text, text_stack.size);
+        size_t size = strlen(text) + 1;
+        text_stack.text = malloc(sizeof(char) * size);
+        memcpy(text_stack.text, text, size);
 
         _png_add_text(&image->text_list, &text_stack);
     }
@@ -720,9 +720,9 @@ void image_png_get_text(struct image_png* image, const char* keyword, char** out
     _png_get_text(&image->text_list, keyword, &text, NULL);
 
     if (text != NULL) {
-        char* copy = malloc(sizeof(char) * (text->size + 1));
-        memcpy(copy, text->text, text->size);
-        copy[text->size] = '\0';
+        size_t size = strlen(text->text) + 1;
+        char* copy = malloc(sizeof(char) * size);
+        memcpy(copy, text->text, size);
 
         *out_text = copy;
 
@@ -858,9 +858,9 @@ struct image_png* image_png_copy(struct image_png* image) {
 
             strncpy(copy_text->keyword, text->keyword, 80);
             copy_text->compression = text->compression;
-            copy_text->size = text->size;
-            copy_text->text = malloc(sizeof(char) * copy_text->size);
-            memcpy(copy_text->text, text->text, copy_text->size);
+            size_t size = strlen(copy_text->text) + 1;
+            copy_text->text = malloc(sizeof(char) * size);
+            memcpy(copy_text->text, text->text, size);
         }
 
         memcpy(&copy_image->time, &image->time, sizeof(struct image_png_chunk_tIME));
@@ -1431,16 +1431,16 @@ static int _png_read_chunk_tEXt(struct image_png_chunk* chunk, struct image_png_
     text->compression = -1; 
 
     strncpy(text->keyword, (char*) chunk->data, 80);
-    text->size = chunk->length - strlen(text->keyword);
+    size_t size = chunk->length - strlen(text->keyword);
 
     if (text->text == NULL) {
-        text->text = malloc(sizeof(char) * text->size);
+        text->text = malloc(sizeof(char) * size);
     } else {
-        text->text = realloc(text->text, sizeof(char) * text->size); 
+        text->text = realloc(text->text, sizeof(char) * size); 
     }
 
-    memcpy(text->text, &chunk->data[chunk->length - text->size + 1], text->size - 1);
-    text->text[text->size - 1] = '\0';
+    memcpy(text->text, &chunk->data[chunk->length - size + 1], size - 1);
+    text->text[size - 1] = '\0';
 
     return 0;
 }
@@ -1463,7 +1463,12 @@ static int _png_read_chunk_zTXt(struct image_png_chunk* chunk, struct image_png_
     zext->compression = chunk->data[keyword_length];
 
     size_t compressed_size = chunk->length - keyword_length - 1;
-    media_zlib_inflate(chunk->data + keyword_length + 1, compressed_size, (uint8_t**) &zext->text, &zext->size);
+    size_t size;
+    media_zlib_inflate(chunk->data + keyword_length + 1, compressed_size, (uint8_t**) &zext->text, &size);
+
+    // prepare null-terminator
+    zext->text = realloc(zext->text, sizeof(char) * (size + 1));
+    zext->text[size] = '\0';
 
     return 0;
 }
@@ -1648,12 +1653,14 @@ static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct imag
 }
 
 static void _png_write_chunk_tEXt(struct image_png_chunk_tEXt* text, struct image_png_chunk* chunk) {
-    chunk->length = strlen(text->keyword) + text->size;
+    // null-terminator should not be included
+    size_t size = strlen(text->text);
+    chunk->length = strlen(text->keyword) + size + 1;
     strcpy(chunk->type, "tEXt");
     _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
 
-    memcpy(chunk->data, text->keyword, chunk->length - text->size + 1);
-    memcpy(&chunk->data[chunk->length - text->size + 1], text->text, text->size - 1);
+    memcpy(chunk->data, text->keyword, chunk->length - size);
+    memcpy(&chunk->data[chunk->length - size], text->text, size);
 
     _png_generate_crc32(chunk);
 }
@@ -1669,7 +1676,8 @@ static void _png_write_chunk_zTXt(struct image_png_chunk_tEXt* zext, struct imag
 
     uint8_t* compressed;
     size_t compressed_size;
-    media_zlib_deflate((uint8_t*) zext->text, zext->size, &compressed, &compressed_size, Z_BEST_COMPRESSION);
+    // null terminator is not included in this deflate
+    media_zlib_deflate((uint8_t*) zext->text, strlen(zext->text), &compressed, &compressed_size, Z_BEST_COMPRESSION);
 
     chunk->length += compressed_size;
     _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
