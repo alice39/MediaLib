@@ -39,7 +39,10 @@ namespace media {
         void setSRGB(uint8_t srgb);
 
         void setText(const std::string& keyword, const std::string& text, int16_t compress);
+        void setText(const std::string& keyword, int16_t compression_flag, int16_t compression_method,
+                     const std::string& language_tag, const std::string& translated_keyword, const std::string& text);
         std::tuple<std::string, int16_t> getText(const std::string& keyword) const;
+        std::tuple<int16_t, int16_t, std::string, std::string, std::string> getItxt(const std::string& keyword) const;
         std::vector<std::string> getKeys();
         void delText(const std::string& keyword);
 

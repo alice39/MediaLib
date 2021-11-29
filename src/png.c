@@ -109,9 +109,19 @@ struct image_png_chunk_zTXt {
     char* text;
 };
 
+struct image_png_chunk_iTXt {
+    char keyword[80];
+    uint8_t compression_flag;
+    uint8_t compression_method;
+    char* language_tag;
+    char* translated_keyword;
+    char* text;
+};
+
 enum png_textual_data_type {
     PNG_TEXTUAL_UNCOMPRESSED,
-    PNG_TEXTUAL_COMPRESSED
+    PNG_TEXTUAL_COMPRESSED,
+    PNG_TEXTUAL_INTERNATIONAL
 };
 
 struct png_textual_data {
@@ -119,6 +129,7 @@ struct png_textual_data {
     union {
         struct image_png_chunk_tEXt text;
         struct image_png_chunk_zTXt ztxt;
+        struct image_png_chunk_iTXt itxt;
     } data;
 };
 
@@ -199,6 +210,7 @@ static int _png_read_chunk_sBIT(struct image_png_chunk* chunk, struct image_png_
 static int _png_read_chunk_sRGB(struct image_png_chunk* chunk, struct image_png_chunk_sRGB* srgb);
 static int _png_read_chunk_tEXt(struct image_png_chunk* chunk, struct image_png_chunk_tEXt* text);
 static int _png_read_chunk_zTXt(struct image_png_chunk* chunk, struct image_png_chunk_zTXt* ztxt);
+static int _png_read_chunk_iTXt(struct image_png_chunk* chunk, struct image_png_chunk_iTXt* itxt);
 // return 0 if success, otherwise another number
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time);
 // this is only based in zlib and it'll write in IDAT chunk as SCANLINES
@@ -215,6 +227,7 @@ static void _png_write_chunk_sBIT(struct image_png_chunk_sBIT* sbit, struct imag
 static void _png_write_chunk_sRGB(struct image_png_chunk_sRGB* srgb, struct image_png_chunk* chunk);
 static void _png_write_chunk_tEXt(struct image_png_chunk_tEXt* text, struct image_png_chunk* chunk);
 static void _png_write_chunk_zTXt(struct image_png_chunk_zTXt* ztxt, struct image_png_chunk* chunk);
+static void _png_write_chunk_iTXt(struct image_png_chunk_iTXt* itxt, struct image_png_chunk* chunk);
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk);
 // this is only based in zlib, also it needs that IDAT chunk be in SCANLINES
 static void _png_write_chunk_IDAT(struct image_png_chunk_IDAT* idat, struct image_png_chunk* chunk);
@@ -448,6 +461,19 @@ struct image_png* image_png_open(const char* path) {
                 struct png_textual_data data;
                 data.type = PNG_TEXTUAL_COMPRESSED;
                 memcpy(&data.data.ztxt, &ztxt, sizeof(struct image_png_chunk_zTXt));
+
+                _png_add_text(&image->textual_list, &data);
+            }
+        } else if (strcmp(chunk.type, "iTXt") == 0) {
+            struct image_png_chunk_iTXt itxt;
+            int itxt_ret = _png_read_chunk_iTXt(&chunk, &itxt);
+
+            if (location == 0 || itxt_ret != 0) {
+                invalid = 1;
+            } else {
+                struct png_textual_data data;
+                data.type = PNG_TEXTUAL_INTERNATIONAL;
+                memcpy(&data.data.itxt, &itxt, sizeof(struct image_png_chunk_iTXt));
 
                 _png_add_text(&image->textual_list, &data);
             }
@@ -710,28 +736,32 @@ void image_png_set_text(struct image_png* image, const char* keyword, const char
     _png_get_text(&image->textual_list, keyword, &textual, NULL);
 
     if (textual != NULL) {
-        if (compress == -1) {
-            // don't compress textual info            
-            if (textual->type == PNG_TEXTUAL_COMPRESSED) {
-                struct image_png_chunk_tEXt text;
-                memcpy(text.keyword, textual->data.ztxt.keyword, 80);
-                text.text = textual->data.ztxt.text;
+        if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+            textual->data.itxt.compression_method = compress & 0xFF;
+        } else {
+            if (compress == -1) {
+                // don't compress textual info            
+                if (textual->type == PNG_TEXTUAL_COMPRESSED) {
+                    struct image_png_chunk_tEXt text;
+                    memcpy(text.keyword, textual->data.ztxt.keyword, 80);
+                    text.text = textual->data.ztxt.text;
 
-                textual->type = PNG_TEXTUAL_UNCOMPRESSED;
-                memcpy(&textual->data.text, &text, sizeof(struct image_png_chunk_tEXt));
+                    textual->type = PNG_TEXTUAL_UNCOMPRESSED;
+                    memcpy(&textual->data.text, &text, sizeof(struct image_png_chunk_tEXt));
+                }
+            } else if (compress >= 0) {
+                // compress textual info
+                if (textual->type == PNG_TEXTUAL_UNCOMPRESSED) {
+                    struct image_png_chunk_zTXt ztxt;
+                    memcpy(ztxt.keyword, textual->data.text.keyword, 80);
+                    ztxt.text = textual->data.text.text;
+
+                    textual->type = PNG_TEXTUAL_COMPRESSED;
+                    memcpy(&textual->data.ztxt, &ztxt, sizeof(struct image_png_chunk_zTXt));
+                }
+
+                textual->data.ztxt.compression = compress;
             }
-        } else if (compress >= 0) {
-            // compress textual info
-            if (textual->type == PNG_TEXTUAL_UNCOMPRESSED) {
-                struct image_png_chunk_zTXt ztxt;
-                memcpy(ztxt.keyword, textual->data.text.keyword, 80);
-                ztxt.text = textual->data.text.text;
-
-                textual->type = PNG_TEXTUAL_COMPRESSED;
-                memcpy(&textual->data.ztxt, &ztxt, sizeof(struct image_png_chunk_zTXt));
-            }
-
-            textual->data.ztxt.compression = compress;
         }
 
         if (text != NULL) {
@@ -742,6 +772,8 @@ void image_png_set_text(struct image_png* image, const char* keyword, const char
                 ptext = textual->data.text.text = realloc(textual->data.text.text, sizeof(char) * size);
             } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
                 ptext = textual->data.ztxt.text = realloc(textual->data.ztxt.text, sizeof(char) * size);
+            } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+                ptext = textual->data.itxt.text = realloc(textual->data.itxt.text, sizeof(char) * size);
             }
 
             memcpy(ptext, text, size);
@@ -784,6 +816,91 @@ void image_png_set_text(struct image_png* image, const char* keyword, const char
     }
 }
 
+void image_png_set_itxt(struct image_png* image, const char* keyword, int16_t compression_flag, int16_t compression_method,
+                        const char* language_tag, const char* translated_keyword, const char* text) {
+    struct png_textual_data* textual;
+    _png_get_text(&image->textual_list, keyword, &textual, NULL);
+
+    if (textual != NULL) {
+        if (textual->type == PNG_TEXTUAL_UNCOMPRESSED) {
+            struct image_png_chunk_iTXt itxt;
+            strncpy(itxt.keyword, textual->data.text.keyword, 80);
+
+            itxt.compression_flag = 0;
+            itxt.compression_method = 0;
+
+            itxt.language_tag = strdup("");
+            itxt.translated_keyword = strdup("");
+            itxt.text = strdup(textual->data.itxt.text);
+
+            textual->type = PNG_TEXTUAL_INTERNATIONAL;
+            memcpy(&textual->data.itxt, &itxt, sizeof(struct image_png_chunk_iTXt));
+        } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
+            struct image_png_chunk_iTXt itxt;
+            strncpy(itxt.keyword, textual->data.ztxt.keyword, 80);
+
+            itxt.compression_flag = 0;
+            itxt.compression_method = textual->data.ztxt.compression + 1;
+
+            itxt.language_tag = strdup("");
+            itxt.translated_keyword = strdup("");
+            itxt.text = strdup(textual->data.ztxt.text);
+
+            textual->type = PNG_TEXTUAL_INTERNATIONAL;
+            memcpy(&textual->data.itxt, &itxt, sizeof(struct image_png_chunk_iTXt));
+        }
+
+        if (compression_flag != -1) {
+            textual->data.itxt.compression_flag = compression_flag & 0xFF;
+        }
+
+        if (compression_method != -1) {
+            textual->data.itxt.compression_method = compression_method & 0xFF;
+        }
+
+        if (language_tag != NULL) {
+            free(textual->data.itxt.language_tag);
+            textual->data.itxt.language_tag = strdup(language_tag);
+        }
+
+        if (translated_keyword != NULL) {
+            free(textual->data.itxt.translated_keyword);
+            textual->data.itxt.translated_keyword = strdup(translated_keyword);
+        }
+
+        if (text != NULL) {
+            free(textual->data.itxt.text);
+            textual->data.itxt.text = strdup(text);
+        }
+    } else {
+        if (language_tag == NULL) {
+            language_tag = "";
+        }
+        if (translated_keyword == NULL) {
+            translated_keyword = "";
+        }
+        if (text == NULL) {
+            text = "";
+        }
+
+        struct png_textual_data data;
+        data.type = PNG_TEXTUAL_INTERNATIONAL;
+
+        struct image_png_chunk_iTXt* itxt = &data.data.itxt;
+        strncpy(itxt->keyword, keyword, 80);
+        itxt->keyword[strlen(itxt->keyword)] = '\0';
+
+        itxt->compression_flag = compression_flag;
+        itxt->compression_method = compression_method;
+
+        itxt->language_tag = strdup(language_tag);
+        itxt->translated_keyword = strdup(translated_keyword);
+        itxt->text = strdup(text);
+
+        _png_add_text(&image->textual_list, &data);
+    }
+}
+
 void image_png_get_text(struct image_png* image, const char* keyword, char** out_text, int16_t* out_compress) {
     struct png_textual_data* textual;
     _png_get_text(&image->textual_list, keyword, &textual, NULL);
@@ -798,6 +915,9 @@ void image_png_get_text(struct image_png* image, const char* keyword, char** out
         } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
             text = textual->data.ztxt.text;
             compress = textual->data.ztxt.compression;
+        } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+            text = textual->data.itxt.text;
+            compress = textual->data.itxt.compression_method;
         }
 
         size_t size = strlen(text) + 1;
@@ -817,6 +937,70 @@ void image_png_get_text(struct image_png* image, const char* keyword, char** out
     }
 }
 
+void image_png_get_itxt(struct image_png* image, const char* keyword, int16_t* out_compression_flag, int16_t* out_compression_method,
+                        char** out_language_tag, char** out_translated_keyword, char** out_text) {
+    struct png_textual_data* textual;
+    _png_get_text(&image->textual_list, keyword, &textual, NULL);
+
+    if (out_compression_flag != NULL) {
+        *out_compression_flag = -1;
+    }
+
+    if (out_compression_method != NULL) {
+        *out_compression_method = -1;
+    }
+
+    if (out_language_tag != NULL) {
+        *out_language_tag = NULL;
+    }
+
+    if (out_translated_keyword != NULL) {
+        *out_translated_keyword = NULL;
+    }
+
+    if (out_text != NULL) {
+        *out_text = NULL;
+    }
+
+    if (textual == NULL) {
+        return;
+    }
+
+    if (textual->type == PNG_TEXTUAL_UNCOMPRESSED) {
+        if (out_text != NULL) {
+            *out_text = strdup(textual->data.text.text);
+        }
+    } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
+        if (out_compression_method != NULL) {
+            *out_compression_method = textual->data.ztxt.compression + 1;
+        }
+
+        if (out_text != NULL) {
+            *out_text = strdup(textual->data.ztxt.text);
+        }
+    } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+        if (out_compression_flag != NULL) {
+            *out_compression_flag = textual->data.itxt.compression_flag;
+        }
+
+        if (out_compression_method != NULL) {
+            *out_compression_method = textual->data.itxt.compression_method;
+        }
+
+        if (out_language_tag != NULL) {
+            *out_language_tag = strdup(textual->data.itxt.language_tag);
+        }
+
+        if (out_translated_keyword != NULL) {
+            *out_translated_keyword = strdup(textual->data.itxt.translated_keyword);
+        }
+
+        if (out_text != NULL) {
+            *out_text = strdup(textual->data.itxt.text);
+        }
+    }
+}
+
 void image_png_get_keys(struct image_png* image, char*** out_keywords, uint32_t* size) {
     char** keywords = malloc(sizeof(char*) * image->textual_list.size);
 
@@ -828,6 +1012,8 @@ void image_png_get_keys(struct image_png* image, char*** out_keywords, uint32_t*
             keyword = textual->data.text.keyword;
         } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
             keyword = textual->data.ztxt.keyword;
+        } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+            keyword = textual->data.itxt.keyword;
         }
 
         size_t keyword_length = strlen(keyword) + 1;
@@ -963,6 +1149,16 @@ struct image_png* image_png_copy(struct image_png* image) {
                 size_t size = strlen(copy_ztxt->text) + 1;
                 copy_ztxt->text = malloc(sizeof(char) * size);
                 memcpy(copy_ztxt->text, ztxt->text, size);
+            } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+                struct image_png_chunk_iTXt* itxt = &textual->data.itxt;
+                struct image_png_chunk_iTXt* copy_itxt = &copy_textual->data.itxt;
+
+                strncpy(copy_itxt->keyword, itxt->keyword, 80);
+                copy_itxt->compression_flag = itxt->compression_flag;
+                copy_itxt->compression_method = itxt->compression_method;
+                copy_itxt->language_tag = strdup(itxt->language_tag);
+                copy_itxt->translated_keyword = strdup(itxt->translated_keyword);
+                copy_itxt->text = strdup(itxt->text);
             }
         }
 
@@ -1030,6 +1226,8 @@ void image_png_tobytes(struct image_png* image, uint8_t** pbytes, uint32_t* psiz
             _png_write_chunk_tEXt(&textual->data.text, &chunks[next_chunk++]);
         } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
             _png_write_chunk_zTXt(&textual->data.ztxt, &chunks[next_chunk++]);
+        } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+            _png_write_chunk_iTXt(&textual->data.itxt, &chunks[next_chunk++]);
         }
     }
 
@@ -1127,6 +1325,10 @@ void image_png_close(struct image_png* image) {
             free(textual->data.text.text);
         } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
             free(textual->data.ztxt.text);
+        } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+            free(textual->data.itxt.language_tag);
+            free(textual->data.itxt.translated_keyword);
+            free(textual->data.itxt.text);
         }
     }
     free(image->textual_list.list);
@@ -1580,6 +1782,38 @@ static int _png_read_chunk_zTXt(struct image_png_chunk* chunk, struct image_png_
     return 0;
 }
 
+static int _png_read_chunk_iTXt(struct image_png_chunk* chunk, struct image_png_chunk_iTXt* itxt) {
+    if (chunk == NULL || strcmp(chunk->type, "iTXt") != 0) {
+        return 1;
+    }
+
+    if (_png_check_crc32(chunk)) {
+        return 2;
+    }
+
+    if (itxt == NULL) {
+        return 0;
+    }
+
+    size_t next = 0;
+
+    strncpy(itxt->keyword, (char*) chunk->data, 80);
+    next += strlen(itxt->keyword) + 1;
+
+    itxt->compression_flag = chunk->data[next++];
+    itxt->compression_method = chunk->data[next++];
+
+    itxt->language_tag = strdup((char*) chunk->data + next);
+    next += strlen(itxt->language_tag) + 1;
+
+    itxt->translated_keyword= strdup((char*) chunk->data + next);
+    next += strlen(itxt->translated_keyword) + 1;
+
+    itxt->text = strndup((char*) chunk->data + next, chunk->length - next);
+
+    return 0;
+}
+
 static int _png_read_chunk_tIME(struct image_png_chunk* chunk, struct image_png_chunk_tIME* time) {
     if (chunk == NULL || strcmp(chunk->type, "tIME") != 0 || chunk->length != 7) {
         return 1;
@@ -1795,6 +2029,35 @@ static void _png_write_chunk_zTXt(struct image_png_chunk_zTXt* ztxt, struct imag
     _png_generate_crc32(chunk);
 }
 
+static void _png_write_chunk_iTXt(struct image_png_chunk_iTXt* itxt, struct image_png_chunk* chunk) {
+    size_t keyword_length = strlen(itxt->keyword) + 1;
+    size_t language_tag_length = strlen(itxt->language_tag) + 1;
+    size_t translated_keyword_length = strlen(itxt->translated_keyword) + 1;
+    size_t text_length = strlen(itxt->text);
+
+    chunk->length = keyword_length + language_tag_length + translated_keyword_length + text_length + 2;
+    strcpy(chunk->type, "iTXt");
+    _png_populate_chunk(chunk, sizeof(uint8_t) * chunk->length);
+
+    size_t next = 0;
+
+    strncpy((char*) chunk->data, itxt->keyword, keyword_length);
+    next += keyword_length;
+
+    chunk->data[next++] = itxt->compression_flag;
+    chunk->data[next++] = itxt->compression_method;
+
+    memcpy(chunk->data + next, itxt->language_tag, language_tag_length);
+    next += language_tag_length;
+
+    memcpy(chunk->data + next, itxt->translated_keyword, translated_keyword_length);
+    next += translated_keyword_length;
+
+    memcpy(chunk->data + next, itxt->text, text_length);
+
+    _png_generate_crc32(chunk);
+}
+
 static void _png_write_chunk_tIME(struct image_png_chunk_tIME* time, struct image_png_chunk* chunk) {
     chunk->length = 7;
     strcpy(chunk->type, "tIME");
@@ -2003,6 +2266,8 @@ static void _png_get_text(struct png_textual_list* list,
             keyword = textual->data.text.keyword;
         } else if (textual->type == PNG_TEXTUAL_COMPRESSED) {
             keyword = textual->data.ztxt.keyword;
+        } else if (textual->type == PNG_TEXTUAL_INTERNATIONAL) {
+            keyword = textual->data.itxt.keyword;
         }
 
         if (strcmp(keyword, keyword) != 0) {

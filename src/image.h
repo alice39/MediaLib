@@ -89,8 +89,16 @@ void image_png_get_srgb(struct image_png* image, uint8_t* rendering);
 void image_png_set_srgb(struct image_png* image, uint8_t rendering);
 // compress -1 if disabled, compress -2 if won't change
 void image_png_set_text(struct image_png* image, const char* keyword, const char* text, int16_t compress);
+// compression_flag or compression_method -1 if won't change
+void image_png_set_itxt(struct image_png* image, const char* keyword, int16_t compression_flag, int16_t compression_method,
+                        const char* language_tag, const char* translated_keyword, const char* text);
 // out_text should be freed
 void image_png_get_text(struct image_png* image, const char* keyword, char** out_text, int16_t* out_compress);
+// out_language_tag, out_translated_keyword and out_text should be freed
+// if keyword doesn't belong some itxt data, then out_language_tag and out_translated_keyword will be NULL
+// also, OUT parameters can be NULL to ignore
+void image_png_get_itxt(struct image_png* image, const char* keyword, int16_t* out_compression_flag, int16_t* out_compression_method,
+                        char** out_language_tag, char** out_translated_keyword, char** out_text);
 // out_keywords should be freed including char*
 void image_png_get_keys(struct image_png* image, char*** out_keywords, uint32_t* size);
 void image_png_del_text(struct image_png* image, const char* keyword);

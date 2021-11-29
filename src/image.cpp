@@ -125,6 +125,16 @@ void media::ImagePNG::setText(const std::string& keyword, const std::string& tex
     image_png_set_text(image, keyword.c_str(), text.c_str(), compress);
 }
 
+void media::ImagePNG::setText(const std::string& keyword, int16_t compression_flag, int16_t compression_method,
+                              const std::string& language_tag, const std::string& translated_keyword, const std::string& text) {
+    if (image == NULL) {
+        return;
+    }
+
+    image_png_set_itxt(image, keyword.c_str(), compression_flag, compression_method,
+                       language_tag.c_str(), translated_keyword.c_str(), text.c_str());
+}
+
 std::tuple<std::string, int16_t> media::ImagePNG::getText(const std::string& keyword) const {
     std::string text{};
     int16_t compress = 0;
@@ -138,6 +148,31 @@ std::tuple<std::string, int16_t> media::ImagePNG::getText(const std::string& key
     }
 
     return std::pair<std::string, int16_t>(text, compress);
+}
+
+std::tuple<int16_t, int16_t, std::string, std::string, std::string> media::ImagePNG::getItxt(const std::string& keyword) const{ 
+    int16_t compression_flag = 0;
+    int16_t compression_method = 0;
+    std::string language_tag{};
+    std::string translated_keyword{};
+    std::string text{};
+
+    if (image != NULL) {
+        char* raw_language_tag;
+        char* raw_translated_keyword;
+        char* raw_text;
+        image_png_get_itxt(image, keyword.c_str(), &compression_flag, &compression_method, &raw_language_tag, &raw_translated_keyword, &raw_text);
+
+        language_tag = raw_language_tag;
+        translated_keyword = raw_translated_keyword;
+        text = raw_text;
+
+        free(raw_language_tag);
+        free(raw_translated_keyword);
+        free(raw_text);
+    }
+
+    return std::make_tuple(compression_flag, compression_method, language_tag, translated_keyword, text);
 }
 
 std::vector<std::string> media::ImagePNG::getKeys() {
