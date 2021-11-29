@@ -2300,6 +2300,23 @@ static void _png_sub_text(struct png_textual_list* list,
         return;
     }
 
+    switch (textual->type) {
+        case PNG_TEXTUAL_UNCOMPRESSED: {
+            free(textual->data.text.text);
+            break;
+        }
+        case PNG_TEXTUAL_COMPRESSED: {
+            free(textual->data.ztxt.text);
+            break;
+        }
+        case PNG_TEXTUAL_INTERNATIONAL: {
+            free(textual->data.itxt.language_tag);
+            free(textual->data.itxt.translated_keyword);
+            free(textual->data.itxt.text);
+            break;
+        }
+    }
+
     list->size--;
 
     if (list->size == 0) {
